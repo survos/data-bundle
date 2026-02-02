@@ -27,6 +27,7 @@ final class SurvosDatasetPathsFactory implements DatasetPathsFactoryInterface
 
         $rawDir        = $this->dataPaths->stageDir($datasetKey, '05_raw');
         $normalizeDir  = $this->dataPaths->stageDir($datasetKey, '20_normalize');
+        $profileDir    = $this->dataPaths->stageDir($datasetKey, '21_profile');
         $termsDir      = $this->dataPaths->stageDir($datasetKey, '30_terms');
 
         $objFilename = $this->dataPaths->defaultObjectFilename;
@@ -42,6 +43,8 @@ final class SurvosDatasetPathsFactory implements DatasetPathsFactoryInterface
             normalizedObjectPath: $normalizeDir . '/' . $objFilename,
 
             termsDir: $termsDir,
+
+            profileDir: $profileDir,
         );
     }
 }

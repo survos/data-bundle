@@ -8,6 +8,7 @@ use Survos\DataBundle\Context\DatasetContext;
 use Survos\DataBundle\Context\DatasetResolver;
 use Survos\DataBundle\EventListener\DatasetContextConsoleListener;
 use Survos\DataBundle\Meta\DatasetMetadataConfiguration;
+use Survos\DataBundle\Meta\DatasetMetadataEnsurer;
 use Survos\DataBundle\Meta\DatasetMetadataLoader;
 use Survos\DataBundle\Service\DataPaths;
 use Survos\DataBundle\Service\SurvosDatasetPathsFactory;
@@ -53,7 +54,7 @@ final class SurvosDataBundle extends AbstractBundle
             ]);
 
         // Dataset metadata
-        foreach ([DatasetMetadataConfiguration::class, DatasetMetadataLoader::class] as $class) {
+        foreach ([DatasetMetadataConfiguration::class, DatasetMetadataLoader::class, DatasetMetadataEnsurer::class] as $class) {
             $services->set($class)
                 ->autowire()
                 ->autoconfigure()
