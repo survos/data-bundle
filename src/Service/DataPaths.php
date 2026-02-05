@@ -34,12 +34,58 @@ final class DataPaths
 
     public function sanitizeDatasetKey(string $code): string
     {
-        $code = trim($code);
-        if ($code === '') {
-            throw new \InvalidArgumentException('Code cannot be empty.');
+        return $this->datasetKeyFromRef($code);
+    }
+
+    /**
+     * Parse a dataset reference.
+     *
+     * Accepts:
+     *  - provider/code (preferred)
+     *  - provider-code (legacy)
+     *  - code (treated as provider/code for provider-scoped dirs)
+     *
+     * @return array{provider:string,code:string,key:string}
+     */
+    public function parseDatasetRef(string $ref): array
+    {
+        $ref = trim($ref);
+        if ($ref === '') {
+            throw new \InvalidArgumentException('Dataset cannot be empty.');
         }
 
-        $safe = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $code) ?? $code;
+        $provider = '';
+        $code = '';
+
+        if (str_contains($ref, '/')) {
+            [$provider, $code] = explode('/', $ref, 2);
+        } elseif (str_contains($ref, '-')) {
+            [$provider, $code] = explode('-', $ref, 2);
+        } else {
+            $provider = $ref;
+            $code = $ref;
+        }
+
+        $provider = $this->sanitizeToken($provider);
+        $code = $this->sanitizeToken($code);
+
+        $key = $provider . '-' . $code;
+        return ['provider' => $provider, 'code' => $code, 'key' => $key];
+    }
+
+    public function datasetKeyFromRef(string $ref): string
+    {
+        return $this->parseDatasetRef($ref)['key'];
+    }
+
+    private function sanitizeToken(string $token): string
+    {
+        $token = trim($token);
+        if ($token === '') {
+            throw new \InvalidArgumentException('Dataset token cannot be empty.');
+        }
+
+        $safe = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $token) ?? $token;
         $safe = trim($safe, '_');
 
         if (
@@ -48,7 +94,7 @@ final class DataPaths
             || str_starts_with($safe, '/')
             || str_contains($safe, "\0")
         ) {
-            throw new \InvalidArgumentException(sprintf('Invalid code "%s".', $code));
+            throw new \InvalidArgumentException(sprintf('Invalid token "%s".', $token));
         }
 
         return strtolower($safe);
@@ -67,6 +113,7 @@ final class DataPaths
         public private(set) string $pixieRoot = 'pixie',
         public private(set) string $runsRoot = 'runs',
         public private(set) string $cacheRoot = 'cache',
+        public private(set) string $zipsRoot = 'zips',
         public private(set) string $defaultObjectFilename = 'obj.jsonl',
     ) {
         // semantic aliases are convenient for callers; canonical dirs remain numeric-prefixed.
@@ -75,6 +122,7 @@ final class DataPaths
             'raw'        => '05_raw',
             'extract'    => '10_extract',
             'normalize'  => '20_normalize',
+            'normalized' => '20_normalize',
             'profile'    => '21_profile',
             'terms'      => '30_terms',
 
@@ -88,6 +136,11 @@ final class DataPaths
     public string $pixieRootDir { get => "{$this->root}/{$this->pixieRoot}"; }
     public string $runsRootDir { get => "{$this->root}/{$this->runsRoot}"; }
     public string $cacheRootDir { get => "{$this->root}/{$this->cacheRoot}"; }
+    public string $zipsRootDir {
+        get => str_starts_with($this->zipsRoot, '/')
+            ? rtrim($this->zipsRoot, '/')
+            : "{$this->root}/{$this->zipsRoot}";
+    }
 
     public function filesystem(): Filesystem
     {
@@ -96,12 +149,8 @@ final class DataPaths
 
     public function datasetDir(string $datasetKey): string
     {
-        $datasetKey = trim($datasetKey);
-        if ($datasetKey === '') {
-            throw new \InvalidArgumentException('Dataset key cannot be empty.');
-        }
-
-        return "{$this->datasetsRoot}/{$datasetKey}";
+        $parsed = $this->parseDatasetRef($datasetKey);
+        return "{$this->datasetsRoot}/{$parsed['provider']}/{$parsed['code']}";
     }
 
     /**
@@ -127,5 +176,32 @@ final class DataPaths
         }
 
         return $this->datasetDir($datasetKey) . '/' . $dir;
+    }
+
+    public function normalizeRawFilename(string $filename): string
+    {
+        $name = trim($filename);
+        if ($name === '') {
+            throw new \InvalidArgumentException('Filename cannot be empty.');
+        }
+
+        $name = preg_replace('/[^a-zA-Z0-9._-]+/', '_', $name) ?? $name;
+        $name = trim($name, '_');
+        if ($name === '') {
+            throw new \InvalidArgumentException('Invalid filename.');
+        }
+
+        return $name;
+    }
+
+    public function rawFileFromUrl(string $datasetKey, string $url): string
+    {
+        $path = parse_url($url, PHP_URL_PATH) ?: '';
+        $base = trim(basename($path));
+        if ($base === '') {
+            $base = md5($url) . '.bin';
+        }
+
+        return $this->stageDir($datasetKey, 'raw') . '/' . $this->normalizeRawFilename($base);
     }
 }

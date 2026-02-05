@@ -46,7 +46,7 @@ final class DatasetResolver
                 continue;
             }
 
-            return $this->dataPaths->sanitizeDatasetKey($value);
+            return $this->dataPaths->datasetKeyFromRef($value);
         }
 
         return null;
@@ -65,7 +65,7 @@ final class DatasetResolver
                 continue;
             }
 
-            return $this->dataPaths->sanitizeDatasetKey($value);
+            return $this->dataPaths->datasetKeyFromRef($value);
         }
 
         return null;

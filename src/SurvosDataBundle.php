@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace Survos\DataBundle;
 
 use Survos\DataBundle\Command\DataDiagCommand;
+use Survos\DataBundle\Command\DataHeadCommand;
+use Survos\DataBundle\Command\DataPathCommand;
+use Survos\DataBundle\Command\DataBrowseCommand;
 use Survos\DataBundle\Context\DatasetContext;
 use Survos\DataBundle\Context\DatasetResolver;
 use Survos\DataBundle\EventListener\DatasetContextConsoleListener;
@@ -31,7 +34,17 @@ final class SurvosDataBundle extends AbstractBundle
                 ->scalarNode('pixie_root')->defaultValue('pixie')->end()
                 ->scalarNode('runs_root')->defaultValue('runs')->end()
                 ->scalarNode('cache_root')->defaultValue('cache')->end()
+                ->scalarNode('zips_root')->defaultValue('%env(ZIPS_DIR)%')->end()
                 ->scalarNode('default_object_filename')->defaultValue('obj.jsonl')->end()
+                ->scalarNode('tenant_database_prefix')->defaultValue('')->end()
+                ->arrayNode('tenants')
+                    ->useAttributeAsKey('code')
+                    ->arrayPrototype()
+                        ->children()
+                            ->scalarNode('database')->defaultNull()->end()
+                        ->end()
+                    ->end()
+                ->end()
             ->end();
     }
 
@@ -50,6 +63,7 @@ final class SurvosDataBundle extends AbstractBundle
                 '$pixieRoot' => $config['pixie_root'],
                 '$runsRoot' => $config['runs_root'],
                 '$cacheRoot' => $config['cache_root'],
+                '$zipsRoot' => $config['zips_root'],
                 '$defaultObjectFilename' => $config['default_object_filename'],
             ]);
 
@@ -89,10 +103,34 @@ final class SurvosDataBundle extends AbstractBundle
             ->autoconfigure()
             ->public();
 
+        $services->set(DataPathCommand::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public();
+
+        $services->set(DataHeadCommand::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public();
+
+        $services->set(DataBrowseCommand::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public();
+
         $services->set(DatasetInfoRepository::class)
             ->autowire()
             ->autoconfigure()
             ->public()
             ->tag('doctrine.repository_service');
+
+        $services->set(Tenant\TenantRegistry::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public()
+            ->args([
+                '$databasePrefix' => $config['tenant_database_prefix'],
+                '$tenants' => $config['tenants'],
+            ]);
     }
 }

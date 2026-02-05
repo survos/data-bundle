@@ -15,9 +15,9 @@ final class DatasetPaths
         public readonly string $datasetKey,
     ) {}
 
-    public string $key { get => $this->paths->sanitizeDatasetKey($this->datasetKey); }
+    public string $key { get => $this->paths->datasetKeyFromRef($this->datasetKey); }
 
-    public string $dir { get => "{$this->paths->datasetsRoot}/{$this->key}"; }
+    public string $dir { get => $this->paths->datasetDir($this->datasetKey); }
 
     // ---- Canonical stages (property hooks) ----
 
