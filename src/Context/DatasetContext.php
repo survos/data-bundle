@@ -7,7 +7,7 @@ use Survos\ImportBundle\Contract\DatasetContextInterface;
 
 use function trim;
 
-final class DatasetContext implements DatasetContextInterface
+trait DatasetContextBehavior
 {
     private ?string $dataset = null;
 
@@ -38,5 +38,17 @@ final class DatasetContext implements DatasetContextInterface
         }
 
         return $this->dataset;
+    }
+}
+
+if (interface_exists(DatasetContextInterface::class)) {
+    final class DatasetContext implements DatasetContextInterface
+    {
+        use DatasetContextBehavior;
+    }
+} else {
+    final class DatasetContext
+    {
+        use DatasetContextBehavior;
     }
 }

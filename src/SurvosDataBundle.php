@@ -76,15 +76,17 @@ final class SurvosDataBundle extends AbstractBundle
         }
 
         // Dataset path resolver (overrides import-bundle default)
-        $services->set(SurvosDatasetPathsFactory::class)
-            ->autowire()
-            ->autoconfigure()
-            ->public();
+        if (interface_exists(DatasetPathsFactoryInterface::class)) {
+            $services->set(SurvosDatasetPathsFactory::class)
+                ->autowire()
+                ->autoconfigure()
+                ->public();
 
-        $services->alias(
-            DatasetPathsFactoryInterface::class,
-            SurvosDatasetPathsFactory::class
-        )->public();
+            $services->alias(
+                DatasetPathsFactoryInterface::class,
+                SurvosDatasetPathsFactory::class
+            )->public();
+        }
 
         // Dataset execution context (for console commands)
         foreach ([DatasetContext::class, DatasetResolver::class, DatasetContextConsoleListener::class] as $class) {
@@ -95,7 +97,9 @@ final class SurvosDataBundle extends AbstractBundle
         }
 
         // Alias for cross-bundle reuse
-        $services->alias(DatasetContextInterface::class, DatasetContext::class)->public();
+        if (interface_exists(DatasetContextInterface::class)) {
+            $services->alias(DatasetContextInterface::class, DatasetContext::class)->public();
+        }
 
         // Console command(s)
         $services->set(DataDiagCommand::class)
