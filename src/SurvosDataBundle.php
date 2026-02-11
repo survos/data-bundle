@@ -9,6 +9,7 @@ use Survos\DataBundle\Command\DataPathCommand;
 use Survos\DataBundle\Command\DataBrowseCommand;
 use Survos\DataBundle\Context\DatasetContext;
 use Survos\DataBundle\Context\DatasetResolver;
+use Survos\DataBundle\DBAL\MultiDbConnectionWrapper;
 use Survos\DataBundle\EventListener\DatasetContextConsoleListener;
 use Survos\DataBundle\Meta\DatasetMetadataConfiguration;
 use Survos\DataBundle\Meta\DatasetMetadataEnsurer;
@@ -100,6 +101,13 @@ final class SurvosDataBundle extends AbstractBundle
         if (interface_exists(DatasetContextInterface::class)) {
             $services->alias(DatasetContextInterface::class, DatasetContext::class)->public();
         }
+
+        //
+
+//        $services->set(MultiDbConnectionWrapper::class)
+//            ->autowire()
+//            ->autoconfigure()
+//            ->public();
 
         // Console command(s)
         $services->set(DataDiagCommand::class)

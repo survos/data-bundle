@@ -25,7 +25,8 @@
     "require-dev": {
         "roave/security-advisories": "dev-latest",
         "phpunit/phpunit": "^12.0",
-        "symfony/yaml": "^7.4 || ^8.0"
+        "symfony/yaml": "^7.4 || ^8.0",
+        "survos/import-bundle": "^2.0"
     },
     "minimum-stability": "stable",
     "prefer-stable": true
