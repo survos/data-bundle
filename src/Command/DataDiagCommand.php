@@ -22,8 +22,8 @@ final class DataDiagCommand extends Command
     public function __invoke(
         SymfonyStyle $io,
 
-        #[Argument('Name of dataset (e.g. "aaa") or aggregator (e.g. "smith").')]
-        string $name,
+        #[Argument('Name of dataset (e.g. "dc/tb09jw350"). If omitted, you will be prompted.')]
+        ?string $name = null,
 
         #[Option('Comma-separated unit codes for aggregator mode (e.g. "aaa,nmah"). Omit to scan all units under the aggregator directory.')]
         ?string $unit = null,
@@ -39,6 +39,20 @@ final class DataDiagCommand extends Command
             return Command::SUCCESS;
         }
 
+        if (!is_string($name) || trim($name) === '') {
+            $this->showAvailableAggregators($io, $datasetsRoot);
+            return Command::FAILURE;
+        }
+
+        $name = trim($name);
+        if (!str_contains($name, '/')) {
+            $providerDir = $datasetsRoot . '/' . strtolower($name);
+            if (is_dir($providerDir)) {
+                $this->showAvailableDatasetsForAggregator($io, strtolower($name), $providerDir);
+                return Command::FAILURE;
+            }
+        }
+
         // Determine mode: aggregator if data/<name> contains per-unit dirs and/or has 05_raw under subdirs.
         $name = strtolower(trim($name));
         $datasetDir = $this->paths->datasetDir($name);
@@ -47,8 +61,44 @@ final class DataDiagCommand extends Command
             return $this->diagDataset($io, $name);
         }
 
-        $io->error(sprintf('No dataset or aggregator found for "%s". Looked for %s and %s', $name, $aggDir, $datasetDir));
+        $io->error(sprintf('No dataset found for "%s". Looked for %s', $name, $datasetDir));
         return Command::FAILURE;
+    }
+
+    private function showAvailableAggregators(SymfonyStyle $io, string $datasetsRoot): void
+    {
+        $providers = $this->listImmediateSubdirs($datasetsRoot);
+        sort($providers, SORT_NATURAL | SORT_FLAG_CASE);
+
+        if ($providers === []) {
+            $io->warning('No aggregators found under datasets root.');
+            return;
+        }
+
+        $io->section('Available aggregator codes (from disk)');
+        foreach ($providers as $provider) {
+            $io->writeln(' - ' . $provider);
+        }
+
+        $io->note('Run: bin/console data:diag <aggregator/code> (example: dc/tb09jw350)');
+    }
+
+    private function showAvailableDatasetsForAggregator(SymfonyStyle $io, string $provider, string $providerDir): void
+    {
+        $codes = $this->listImmediateSubdirs($providerDir);
+        sort($codes, SORT_NATURAL | SORT_FLAG_CASE);
+
+        if ($codes === []) {
+            $io->warning(sprintf('No dataset codes found under aggregator "%s".', $provider));
+            return;
+        }
+
+        $io->section(sprintf('Available datasets for aggregator "%s"', $provider));
+        foreach ($codes as $code) {
+            $io->writeln(sprintf(' - %s/%s', $provider, $code));
+        }
+
+        $io->note(sprintf('Run: bin/console data:diag %s/<code>', $provider));
     }
 
     private function diagAggregator(SymfonyStyle $io, string $aggregator, ?string $unitCsv): int
@@ -118,13 +168,14 @@ final class DataDiagCommand extends Command
 
     private function diagDataset(SymfonyStyle $io, string $unit): int
     {
-        $io->section(sprintf('Dataset: %s', strtoupper($unit)));
+        $io->section(sprintf('Dataset: %s', $unit));
 
         $stages = [
-            '10_extract' => $this->paths->extractDir($unit),
-            '20_normalize' => $this->paths->normalizeDir($unit),
-            '21_profile' => $this->paths->profileDir($unit),
-            '30_terms' => $this->paths->termsDir($unit),
+            '05_raw' => $this->paths->stageDir($unit, '05_raw'),
+            '10_extract' => $this->paths->stageDir($unit, '10_extract'),
+            '20_normalize' => $this->paths->stageDir($unit, '20_normalize'),
+            '21_profile' => $this->paths->stageDir($unit, '21_profile'),
+            '30_terms' => $this->paths->stageDir($unit, '30_terms'),
         ];
 
         $rows = [];
@@ -153,8 +204,8 @@ final class DataDiagCommand extends Command
         $io->table($headers, $rows);
 
         // Also print a compact numeric summary like your example
-        $extract = $this->countFilesAndDirs($this->paths->extractDir($unit));
-        $norm = $this->countFilesAndDirs($this->paths->normalizeDir($unit));
+        $extract = $this->countFilesAndDirs($this->paths->stageDir($unit, '10_extract'));
+        $norm = $this->countFilesAndDirs($this->paths->stageDir($unit, '20_normalize'));
         $io->writeln(sprintf('10_extract: %d dirs, %d files', $extract['dirs'], $extract['files']));
         $io->writeln(sprintf('20_normalize: %d dirs, %d files', $norm['dirs'], $norm['files']));
 
