@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle\Meta;
 
+use Survos\DataBundle\Configuration\DatasetConfiguration;
 use Survos\DataBundle\Service\DatasetPaths;
 use Symfony\Component\Config\Definition\Processor;
 use Symfony\Component\Yaml\Yaml;
@@ -11,6 +12,7 @@ use function array_key_exists;
 use function file_put_contents;
 use function is_array;
 use function is_file;
+use function json_encode;
 use function sprintf;
 
 final class DatasetMetadataEnsurer
@@ -59,6 +61,35 @@ final class DatasetMetadataEnsurer
         }
 
         return $processed;
+    }
+
+    /**
+     * Write dataset configuration as JSON.
+     * Replaces the YAML-based ensure() method.
+     */
+    public function ensureJson(DatasetPaths $paths, DatasetConfiguration $config, bool $write = true): DatasetConfiguration
+    {
+        $metaJsonFile = $paths->metaJson;
+
+        $existing = null;
+        if (is_file($metaJsonFile)) {
+            $content = file_get_contents($metaJsonFile);
+            if ($content !== false) {
+                $existing = json_decode($content, true);
+            }
+        }
+
+        $configArray = $config->toArray();
+
+        if ($write) {
+            $payload = ['dataset' => $configArray];
+            $encoded = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+            $paths->paths->filesystem()->mkdir($paths->metaDir);
+            file_put_contents($metaJsonFile, $encoded);
+        }
+
+        return $config;
     }
 
     /**

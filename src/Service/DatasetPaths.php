@@ -31,6 +31,7 @@ final class DatasetPaths
     // ---- Common files ----
 
     public string $metaYaml { get => "{$this->metaDir}/dataset.yaml"; }
+    public string $metaJson { get => "{$this->metaDir}/dataset.json"; }
 
     public function extractFile(?string $filename = null): string
     {

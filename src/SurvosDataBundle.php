@@ -7,6 +7,7 @@ use Survos\DataBundle\Command\DataDiagCommand;
 use Survos\DataBundle\Command\DataHeadCommand;
 use Survos\DataBundle\Command\DataPathCommand;
 use Survos\DataBundle\Command\DataBrowseCommand;
+use Survos\DataBundle\Command\ScanDatasetsCommand;
 use Survos\DataBundle\Context\DatasetContext;
 use Survos\DataBundle\Context\DatasetResolver;
 use Survos\DataBundle\DBAL\MultiDbConnectionWrapper;
@@ -130,6 +131,11 @@ final class SurvosDataBundle extends AbstractBundle
             ->autoconfigure()
             ->public();
 
+        $services->set(ScanDatasetsCommand::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public();
+
         $services->set(DatasetInfoRepository::class)
             ->autowire()
             ->autoconfigure()
@@ -144,5 +150,24 @@ final class SurvosDataBundle extends AbstractBundle
                 '$databasePrefix' => $config['tenant_database_prefix'],
                 '$tenants' => $config['tenants'],
             ]);
+    }
+
+    public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
+    {
+        if ($builder->hasExtension('doctrine')) {
+            $builder->prependExtensionConfig('doctrine', [
+                'orm' => [
+                    'mappings' => [
+                        'SurvosDataBundle' => [
+                            'is_bundle' => false,
+                            'type'      => 'attribute',
+                            'dir'       => \dirname(__DIR__) . '/src/Entity',
+                            'prefix'    => 'Survos\\DataBundle\\Entity',
+                            'alias'     => 'SurvosDataBundle',
+                        ],
+                    ],
+                ],
+            ]);
+        }
     }
 }
