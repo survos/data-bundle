@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Survos\DataBundle\Dto\Item;
 
 use Survos\DataBundle\Metadata\ContentType;
+use Survos\DataBundle\Vocabulary\DcTerms;
 
 /**
  * Base DTO for all museum collection items.
@@ -126,6 +127,94 @@ abstract class BaseItemDto
     }
 
     // ── Hydration ─────────────────────────────────────────────────────────────
+
+    /**
+     * Instantiate the correct typed subclass from an Asset::$sourceMeta blob.
+     *
+     * Uses ContentType to pick the right subclass (PhotographDto, MapDto, etc.)
+     * then maps dcterms: keys via the DcTerms enum — fully automatic, no hard-coding.
+     *
+     * Registry maps content_type slug → DTO class. Add new types here as subclasses are created.
+     */
+    private static array $typeRegistry = [];
+
+    public static function registerType(string $contentType, string $dtoClass): void
+    {
+        static::$typeRegistry[$contentType] = $dtoClass;
+    }
+
+    public static function fromSourceMeta(array $meta): static
+    {
+        // Pick the right subclass from content_type
+        $contentType = $meta['content_type'] ?? null;
+        $class = static::$typeRegistry[$contentType] ?? static::class;
+        /** @var static $dto */
+        $dto = new $class();
+
+        // Map dcterms: keys via DcTerms enum → DTO property names
+        // DcTerms::TITLE->localName() = 'title' → $dto->title
+        foreach (DcTerms::cases() as $term) {
+            $key = $term->value;            // 'dcterms:title'
+            $prop = $term->localName();     // 'title'
+            if (!array_key_exists($key, $meta)) continue;
+            // Map to DTO property using camelCase conversion for multi-word terms
+            // e.g. 'isPartOf' → $dto->collections (special cases below)
+            $camel = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $prop))));
+            if (property_exists($dto, $camel)) {
+                $dto->$camel = $meta[$key];
+            }
+        }
+
+        // Special mappings where dcterms localName ≠ DTO property
+        $dto->id          ??= $meta['source_id']     ?? null;
+        $dto->sourceUrl   ??= $meta['dcterms:source'] ?? null;
+        $dto->contentType ??= $contentType            ?? ($dto instanceof static ? static::contentType() : null);
+        $dto->aggregator  ??= $meta['aggregator']      ?? null;
+        $dto->creators    ??= $meta['dcterms:creator'] ?? null;
+        $dto->subjects    ??= $meta['dcterms:subject'] ?? null;
+        $dto->collections ??= $meta['dcterms:isPartOf'] ?? null;
+        $dto->rights      ??= $meta['dcterms:rights']  ?? $meta['rights'] ?? null;
+        $dto->rightsUri   ??= $meta['dcterms:license'] ?? $meta['license_uri'] ?? null;
+        $dto->iiifBase    ??= $meta['iiif_base']       ?? null;
+        $dto->iiifManifest??= $meta['iiif_manifest']   ?? null;
+        $dto->thumbnailUrl??= $meta['thumbnail_url']   ?? null;
+
+        return $dto;
+    }
+
+    /**
+     * Serialize back to a sourceMeta blob (inverse of fromSourceMeta).
+     * Uses DcTerms enum for the canonical dcterms: keys.
+     */
+    public function toSourceMeta(): array
+    {
+        // Build dcterms: keyed map from DTO properties
+        $meta = array_filter([
+            DcTerms::TITLE->value       => $this->title,
+            DcTerms::DESCRIPTION->value => $this->description,
+            DcTerms::DATE->value        => $this->date,
+            DcTerms::CREATOR->value     => $this->creators,
+            DcTerms::SUBJECT->value     => $this->subjects,
+            DcTerms::IS_PART_OF->value  => $this->collections,
+            DcTerms::PUBLISHER->value   => $this->institution,
+            DcTerms::LANGUAGE->value    => $this->language,
+            DcTerms::EXTENT->value      => $this->extent ?? null,
+            DcTerms::RIGHTS->value      => $this->rights,
+            DcTerms::LICENSE->value     => $this->rightsUri,
+            DcTerms::ACCESS_RIGHTS->value => $this->reuseAllowed ?? null,
+            DcTerms::SOURCE->value      => $this->sourceUrl,
+            DcTerms::IDENTIFIER->value  => $this->identifierLocal,
+            // Non-dcterms fields stored alongside
+            'content_type'   => static::contentType(),
+            'aggregator'     => $this->aggregator,
+            'source_id'      => $this->id,
+            'iiif_base'      => $this->iiifBase,
+            'iiif_manifest'  => $this->iiifManifest,
+            'thumbnail_url'  => $this->thumbnailUrl,
+        ], static fn($v) => $v !== null && $v !== '' && $v !== []);
+
+        return $meta;
+    }
 
     /**
      * Populate from a normalized JSONL record (20_normalize/obj.jsonl).
