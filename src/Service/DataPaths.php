@@ -125,6 +125,9 @@ final class DataPaths
             'normalized' => '20_normalize',
             'profile'    => '21_profile',
             'terms'      => '30_terms',
+            'ai'         => '40_ai',
+            'ai-batches' => '40_ai',
+            'ai_batches' => '40_ai',
 
             // allow direct numeric stage keys too (identity mapping handled in stageDir()).
         ];
@@ -203,5 +206,43 @@ final class DataPaths
         }
 
         return $this->stageDir($datasetKey, 'raw') . '/' . $this->normalizeRawFilename($base);
+    }
+
+    // ── AI output paths ───────────────────────────────────────────────────────
+    //
+    // Layout:
+    //   $APP_DATA_DIR/
+    //     data/
+    //       dc/
+    //         nv935r28t/
+    //           40_ai/
+    //             batch_abc123.jsonl   ← provider batch ID, not our DB id
+    //             batch_def456.jsonl
+    //
+    // Keyed by the provider batch ID (e.g. OpenAI's "batch_abc123"), NOT our
+    // local integer ID — so files survive DB resets and are portable.
+
+    public function aiDir(string $datasetKey): string
+    {
+        return $this->stageDir($datasetKey, 'ai');
+    }
+
+    /**
+     * Full path to a saved AI batch result JSONL for a dataset.
+     *
+     * @param string $datasetKey      e.g. "dc/nv935r28t" or "cheztac"
+     * @param string $providerBatchId e.g. "batch_abc123" (from OpenAI/Anthropic)
+     */
+    public function aiBatchResultFile(string $datasetKey, string $providerBatchId): string
+    {
+        $safe = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $providerBatchId) ?? $providerBatchId;
+        return "{$this->aiDir($datasetKey)}/{$safe}.jsonl";
+    }
+
+    public function ensureAiDir(string $datasetKey): string
+    {
+        $dir = $this->aiDir($datasetKey);
+        $this->filesystem()->mkdir($dir);
+        return $dir;
     }
 }
