@@ -3,30 +3,32 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle;
 
+use Survos\DataBundle\Command\DataBrowseCommand;
 use Survos\DataBundle\Command\DataDiagCommand;
 use Survos\DataBundle\Command\DataHeadCommand;
 use Survos\DataBundle\Command\DataPathCommand;
-use Survos\DataBundle\Command\DataBrowseCommand;
 use Survos\DataBundle\Command\ScanDatasetsCommand;
 use Survos\DataBundle\Context\DatasetContext;
 use Survos\DataBundle\Context\DatasetResolver;
-use Survos\DataBundle\DBAL\MultiDbConnectionWrapper;
+use Survos\DataBundle\Entity\DatasetInfo;
 use Survos\DataBundle\EventListener\DatasetContextConsoleListener;
 use Survos\DataBundle\Meta\DatasetMetadataConfiguration;
 use Survos\DataBundle\Meta\DatasetMetadataEnsurer;
 use Survos\DataBundle\Meta\DatasetMetadataLoader;
+use Survos\DataBundle\Repository\DatasetInfoRepository;
 use Survos\DataBundle\Service\DataPaths;
 use Survos\DataBundle\Service\SurvosDatasetPathsFactory;
-use Survos\DataBundle\Repository\DatasetInfoRepository;
 use Survos\ImportBundle\Contract\DatasetContextInterface;
 use Survos\ImportBundle\Contract\DatasetPathsFactoryInterface;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
+use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
 final class SurvosDataBundle extends AbstractBundle
 {
+
     public function configure(DefinitionConfigurator $definition): void
     {
         $definition->rootNode()
@@ -54,7 +56,6 @@ final class SurvosDataBundle extends AbstractBundle
     {
         $services = $container->services();
 
-        // Core service
         $services->set(DataPaths::class)
             ->autowire()
             ->autoconfigure()
@@ -69,7 +70,6 @@ final class SurvosDataBundle extends AbstractBundle
                 '$defaultObjectFilename' => $config['default_object_filename'],
             ]);
 
-        // Dataset metadata
         foreach ([DatasetMetadataConfiguration::class, DatasetMetadataLoader::class, DatasetMetadataEnsurer::class] as $class) {
             $services->set($class)
                 ->autowire()
@@ -77,20 +77,16 @@ final class SurvosDataBundle extends AbstractBundle
                 ->public();
         }
 
-        // Dataset path resolver (overrides import-bundle default)
         if (interface_exists(DatasetPathsFactoryInterface::class)) {
             $services->set(SurvosDatasetPathsFactory::class)
                 ->autowire()
                 ->autoconfigure()
                 ->public();
 
-            $services->alias(
-                DatasetPathsFactoryInterface::class,
-                SurvosDatasetPathsFactory::class
-            )->public();
+            $services->alias(DatasetPathsFactoryInterface::class, SurvosDatasetPathsFactory::class)
+                ->public();
         }
 
-        // Dataset execution context (for console commands)
         foreach ([DatasetContext::class, DatasetResolver::class, DatasetContextConsoleListener::class] as $class) {
             $services->set($class)
                 ->autowire()
@@ -98,49 +94,26 @@ final class SurvosDataBundle extends AbstractBundle
                 ->public();
         }
 
-        // Alias for cross-bundle reuse
         if (interface_exists(DatasetContextInterface::class)) {
             $services->alias(DatasetContextInterface::class, DatasetContext::class)->public();
         }
 
-        //
-
-//        $services->set(MultiDbConnectionWrapper::class)
-//            ->autowire()
-//            ->autoconfigure()
-//            ->public();
-
-        // Console command(s)
-        $services->set(DataDiagCommand::class)
-            ->autowire()
-            ->autoconfigure()
-            ->public();
-
-        $services->set(DataPathCommand::class)
-            ->autowire()
-            ->autoconfigure()
-            ->public();
-
-        $services->set(DataHeadCommand::class)
-            ->autowire()
-            ->autoconfigure()
-            ->public();
-
-        $services->set(DataBrowseCommand::class)
-            ->autowire()
-            ->autoconfigure()
-            ->public();
-
-        $services->set(ScanDatasetsCommand::class)
-            ->autowire()
-            ->autoconfigure()
-            ->public();
+        foreach ([DataDiagCommand::class, DataPathCommand::class, DataHeadCommand::class, DataBrowseCommand::class, ScanDatasetsCommand::class] as $class) {
+            $services->set($class)
+                ->autowire()
+                ->autoconfigure()
+                ->public();
+        }
 
         $services->set(DatasetInfoRepository::class)
             ->autowire()
             ->autoconfigure()
             ->public()
             ->tag('doctrine.repository_service');
+
+        $services->set('survos_data.api_resource.dataset_info', DatasetInfo::class)
+            ->abstract()
+            ->tag('api_platform.resource');
 
         $services->set(Tenant\TenantRegistry::class)
             ->autowire()
@@ -154,20 +127,58 @@ final class SurvosDataBundle extends AbstractBundle
 
     public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
     {
+        $entityDir = dirname(__DIR__) . '/src/Entity';
+
         if ($builder->hasExtension('doctrine')) {
             $builder->prependExtensionConfig('doctrine', [
                 'orm' => [
                     'mappings' => [
                         'SurvosDataBundle' => [
                             'is_bundle' => false,
-                            'type'      => 'attribute',
-                            'dir'       => \dirname(__DIR__) . '/src/Entity',
-                            'prefix'    => 'Survos\\DataBundle\\Entity',
-                            'alias'     => 'SurvosDataBundle',
+                            'type' => 'attribute',
+                            'dir' => $entityDir,
+                            'prefix' => 'Survos\DataBundle\Entity',
+                            'alias' => 'SurvosDataBundle',
                         ],
                     ],
                 ],
             ]);
         }
+
+        if ($builder->hasExtension('api_platform')) {
+            $builder->prependExtensionConfig('api_platform', [
+                'mapping' => [
+                    'paths' => [$entityDir],
+                ],
+                'resource_class_directories' => [$entityDir],
+            ]);
+        }
+    }
+
+    public function configureRoutes(RoutingConfigurator $routes): void
+    {
+        if (!class_exists('ApiPlatform\\Action\\PlaceholderAction')) {
+            return;
+        }
+
+        $defaults = [
+            '_controller' => 'api_platform.action.placeholder',
+            '_stateless' => true,
+            '_api_resource_class' => DatasetInfo::class,
+        ];
+
+        $routes->add('_api_/dataset_infos_get_collection', '/api/dataset_infos')
+            ->methods(['GET'])
+            ->defaults($defaults + [
+                '_api_operation_name' => '_api_/dataset_infos_get_collection',
+                '_format' => null,
+            ]);
+
+        $routes->add('_api_/dataset_infos/{datasetKey}_get', '/api/dataset_infos/{datasetKey}')
+            ->methods(['GET'])
+            ->defaults($defaults + [
+                '_api_operation_name' => '_api_/dataset_infos/{datasetKey}_get',
+                '_format' => null,
+            ]);
     }
 }

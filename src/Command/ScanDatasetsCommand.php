@@ -66,7 +66,8 @@ final class ScanDatasetsCommand extends DataCommand
             $meta = str_ends_with($metaFile, '.json')
                 ? json_decode(file_get_contents($metaFile), true, 512, JSON_THROW_ON_ERROR)
                 : Yaml::parseFile($metaFile);
-            $datasetKey = $meta['dataset_key'] ?? null;
+            $meta = $this->normalizeMeta($meta);
+            $datasetKey = $meta['dataset_key'] ?? $meta['datasetKey'] ?? null;
             if (!$datasetKey) {
                 continue;
             }
@@ -172,6 +173,20 @@ final class ScanDatasetsCommand extends DataCommand
         return 0;
     }
 
+    /** @return array<string,mixed> */
+    private function normalizeMeta(array $meta): array
+    {
+        if (isset($meta['dataset']) && is_array($meta['dataset'])) {
+            $meta = $meta['dataset'];
+        }
+
+        if (isset($meta['datasetKey']) && !isset($meta['dataset_key'])) {
+            $meta['dataset_key'] = $meta['datasetKey'];
+        }
+
+        return $meta;
+    }
+
     private function pixieCodeToDatasetKey(string $pixieCode, DatasetInfoRepository $repo): ?string
     {
         // Try progressively: "fortepan_hu" → "fortepan/hu", "dc_0v83gg01j" → "dc/0v83gg01j"
@@ -197,7 +212,7 @@ final class ScanDatasetsCommand extends DataCommand
         $info->country      = $meta['country']['iso2'] ?? null;
         $info->contactUrl   = $meta['contact']['url'] ?? null;
         $info->rightsUri    = $meta['rights']['default_uri'] ?? null;
-        $info->objCount     = (int)($meta['extras']['obj_count'] ?? 0);
+        $info->objCount     = (int)($meta['extras']['obj_count'] ?? $meta['extras']['recordCount'] ?? 0);
         $info->meta         = $meta;
         $info->metaPath     = $metaFile;
         $info->lastScanned  = new \DateTimeImmutable();
@@ -216,6 +231,10 @@ final class ScanDatasetsCommand extends DataCommand
         if ($info->profilePath && is_file($info->profilePath)) {
             $this->populateFromProfile($info, $info->profilePath);
         }
+
+        if ($info->objCount === 0 && $info->rawPath && is_file($info->rawPath)) {
+            $info->objCount = $this->countJsonlLines($info->rawPath);
+        }
     }
 
     private function populateFromProfile(DatasetInfo $info, string $profilePath): void
@@ -227,6 +246,9 @@ final class ScanDatasetsCommand extends DataCommand
         }
 
         $info->normalizedCount = $profile['recordCount'] ?? null;
+        if (($info->objCount ?? 0) === 0 && (int) ($info->normalizedCount ?? 0) > 0) {
+            $info->objCount = (int) $info->normalizedCount;
+        }
 
         // Profile is for the 'obj' core by default
         // Multi-core datasets will have multiple profile files (obj.profile.json, cat.profile.json, etc.)
@@ -238,10 +260,57 @@ final class ScanDatasetsCommand extends DataCommand
         }
 
         $info->fields[$coreName] = array_keys($profile['fields'] ?? []);
+        $info->profileSummary = $this->buildProfileSummary($profile);
 
         if ($info->normalizedCount) {
             $info->lastNormalized = new \DateTimeImmutable();
         }
+    }
+
+    /** @param array<string,mixed> $profile */
+    private function buildProfileSummary(array $profile): array
+    {
+        $fields = is_array($profile['fields'] ?? null) ? $profile['fields'] : [];
+
+        $summary = [
+            'recordCount' => (int) ($profile['recordCount'] ?? 0),
+            'fieldCount' => count($fields),
+            'fieldNames' => array_keys($fields),
+            'uniqueFields' => array_values(array_filter($profile['uniqueFields'] ?? [], static fn(mixed $value): bool => is_string($value) && $value !== '')),
+            'candidates' => [
+                'location' => $this->summarizeCandidateFields($fields, ['country', 'state', 'county', 'city']),
+                'type' => $this->summarizeCandidateFields($fields, ['type', 'subtype', 'object_type', 'genre', 'format']),
+            ],
+        ];
+
+        $locationDistinct = max(array_map(static fn(array $field): int => (int) ($field['distinct'] ?? 0), $summary['candidates']['location']) ?: [0]);
+        $typeDistinct = max(array_map(static fn(array $field): int => (int) ($field['distinct'] ?? 0), $summary['candidates']['type']) ?: [0]);
+        $summary['preferredHierarchy'] = ($locationDistinct <= 2 && $typeDistinct >= 3) ? 'type' : 'location';
+
+        return $summary;
+    }
+
+    /**
+     * @param array<string,mixed> $fields
+     * @param string[] $names
+     * @return array<string,array{distinct:int,nulls:int,types:array<int,string>}>
+     */
+    private function summarizeCandidateFields(array $fields, array $names): array
+    {
+        $summary = [];
+        foreach ($names as $name) {
+            $field = $fields[$name] ?? null;
+            if (!is_array($field)) {
+                continue;
+            }
+            $summary[$name] = [
+                'distinct' => (int) ($field['distinct'] ?? 0),
+                'nulls' => (int) ($field['nulls'] ?? 0),
+                'types' => array_values(array_filter($field['types'] ?? [], static fn(mixed $value): bool => is_string($value) && $value !== '')),
+            ];
+        }
+
+        return $summary;
     }
 
     private function updateStatus(DatasetInfo $info): void
@@ -254,5 +323,19 @@ final class ScanDatasetsCommand extends DataCommand
             $info->hasRaw()             => 'raw',
             default                     => 'discovered',
         };
+    }
+
+    private function countJsonlLines(string $filename): int
+    {
+        $count = 0;
+        $file = new \SplFileObject($filename, 'r');
+        while (!$file->eof()) {
+            $line = trim((string) $file->fgets());
+            if ($line !== '') {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 }

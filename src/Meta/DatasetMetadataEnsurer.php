@@ -31,6 +31,7 @@ final class DatasetMetadataEnsurer
      */
     public function ensure(DatasetPaths $paths, array $seed, bool $write = true): array
     {
+        throw new \RuntimeException('This method is deprecated. Use ensureJson() instead.');
         $metaFile = $paths->metaYaml;
         $existing = [];
         $rooted = false;

@@ -3,9 +3,16 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle\Entity;
 
+use ApiPlatform\Doctrine\Orm\Filter\OrderFilter;
+use ApiPlatform\Doctrine\Orm\Filter\SearchFilter;
+use ApiPlatform\Metadata\ApiFilter;
+use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\GetCollection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Survos\DataBundle\Repository\DatasetInfoRepository;
+use Symfony\Component\Serializer\Attribute\Groups;
 
 /**
  * Registry of all known datasets — populated once by scanning 00_meta/dataset.yaml
@@ -23,36 +30,54 @@ use Survos\DataBundle\Repository\DatasetInfoRepository;
 #[ORM\Index(columns: ['aggregator'])]
 #[ORM\Index(columns: ['locale'])]
 #[ORM\Index(columns: ['status'])]
+#[ApiResource(
+    operations: [
+        new GetCollection(uriTemplate: '/dataset_infos', normalizationContext: ['groups' => ['dataset:read']]),
+        new Get(uriTemplate: '/dataset_infos/{datasetKey}', normalizationContext: ['groups' => ['dataset:read']]),
+    ],
+    normalizationContext: ['groups' => ['dataset:read']],
+)]
+#[ApiFilter(SearchFilter::class, properties: ['datasetKey' => 'partial', 'label' => 'partial', 'aggregator' => 'exact', 'status' => 'exact', 'country' => 'exact'])]
+#[ApiFilter(OrderFilter::class, properties: ['datasetKey', 'label', 'aggregator', 'status', 'objCount', 'normalizedCount', 'lastScanned'])]
 final class DatasetInfo
 {
     #[ORM\Id]
     #[ORM\Column(type: Types::STRING, length: 128)]
+    #[Groups(['dataset:read'])]
     public readonly string $datasetKey;  // e.g. "fortepan/hu", "dc/0v83gg01j"
 
     // ── From 00_meta/dataset.yaml ─────────────────────────────────────────────
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?string $label = null;
 
     #[ORM\Column(type: Types::TEXT, nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?string $description = null;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?string $aggregator = null;    // dc | pp | fortepan | mds | mus | etc.
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?string $locale = null;        // default locale: en | de | hu | etc.
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?string $country = null;       // ISO2: US | HU | GB | etc.
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?string $contactUrl = null;    // collection homepage
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?string $rightsUri = null;
 
     #[ORM\Column]
+    #[Groups(['dataset:read'])]
     public int $objCount = 0;             // from extras.obj_count or profile recordCount
 
     // ── Paths (resolved at scan time, no filesystem access needed later) ──────
@@ -76,24 +101,31 @@ final class DatasetInfo
 
     /** One of: discovered | raw | normalized | profiled | pixie | indexed */
     #[ORM\Column(length: 32)]
+    #[Groups(['dataset:read'])]
     public string $status = 'discovered';
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?int $normalizedCount = null;   // from profile recordCount
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?int $pixieRowCount = null;     // rows in pixie db after ingest
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?int $meiliDocCount = null;     // docs in Meilisearch index
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?\DateTimeImmutable $lastScanned = null;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?\DateTimeImmutable $lastNormalized = null;
 
     #[ORM\Column(nullable: true)]
+    #[Groups(['dataset:read'])]
     public ?\DateTimeImmutable $lastIndexed = null;
 
     // ── Compiled schema (from profile + field_map) ────────────────────────────
@@ -116,6 +148,14 @@ final class DatasetInfo
      */
     #[ORM\Column(type: Types::JSON, options: ['jsonb' => true])]
     public array $fields = [];
+
+    /**
+     * Compact subset of obj.profile.json for fast registry decisions.
+     *
+     * @var array<string, mixed>
+     */
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['jsonb' => true])]
+    public ?array $profileSummary = null;
 
     /**
      * Meilisearch settings derived from heuristic + field_map.
@@ -148,9 +188,21 @@ final class DatasetInfo
         return explode('/', $this->datasetKey, 2)[0];
     }
 
+    #[Groups(['dataset:read'])]
+    public function getProvider(): string
+    {
+        return $this->provider();
+    }
+
     public function code(): string
     {
         return explode('/', $this->datasetKey, 2)[1] ?? $this->datasetKey;
+    }
+
+    #[Groups(['dataset:read'])]
+    public function getCode(): string
+    {
+        return $this->code();
     }
 
     /** The pixie code used for the SQLite filename: "fortepan/hu" → "fortepan_hu" */
