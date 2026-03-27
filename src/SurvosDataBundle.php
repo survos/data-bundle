@@ -16,11 +16,14 @@ use Survos\DataBundle\Meta\DatasetMetadataConfiguration;
 use Survos\DataBundle\Meta\DatasetMetadataEnsurer;
 use Survos\DataBundle\Meta\DatasetMetadataLoader;
 use Survos\DataBundle\Repository\DatasetInfoRepository;
+use Survos\DataBundle\Repository\ProviderRepository;
+use Survos\DataBundle\Twig\Components\ProviderListComponent;
 use Survos\DataBundle\Service\DataPaths;
 use Survos\DataBundle\Service\SurvosDatasetPathsFactory;
 use Survos\ImportBundle\Contract\DatasetContextInterface;
 use Survos\ImportBundle\Contract\DatasetPathsFactoryInterface;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -111,6 +114,17 @@ final class SurvosDataBundle extends AbstractBundle
             ->public()
             ->tag('doctrine.repository_service');
 
+        $services->set(ProviderRepository::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public()
+            ->tag('doctrine.repository_service');
+
+        $services->set(ProviderListComponent::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public();
+
         $services->set('survos_data.api_resource.dataset_info', DatasetInfo::class)
             ->abstract()
             ->tag('api_platform.resource');
@@ -180,5 +194,21 @@ final class SurvosDataBundle extends AbstractBundle
                 '_api_operation_name' => '_api_/dataset_infos/{datasetKey}_get',
                 '_format' => null,
             ]);
+    }
+
+    public function build(ContainerBuilder $container): void
+    {
+        $container->addCompilerPass(new class() implements CompilerPassInterface {
+            public function process(ContainerBuilder $container): void
+            {
+                if ($container->hasExtension('twig')) {
+                    $container->loadFromExtension('twig', [
+                        'paths' => [
+                            dirname(__DIR__) . '/templates' => 'SurvosDataBundle',
+                        ],
+                    ]);
+                }
+            }
+        });
     }
 }
