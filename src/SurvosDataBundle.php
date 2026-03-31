@@ -164,7 +164,6 @@ final class SurvosDataBundle extends AbstractBundle
                 'mapping' => [
                     'paths' => [$entityDir],
                 ],
-                'resource_class_directories' => [$entityDir],
             ]);
         }
     }
