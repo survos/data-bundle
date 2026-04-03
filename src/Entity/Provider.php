@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle\Entity;
 
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
@@ -53,9 +55,14 @@ class Provider
     #[ORM\Column(type: 'datetime', nullable: true)]
     private ?\DateTime $syncedAt = null;
 
+    /** @var Collection<int, DatasetInfo> */
+    #[ORM\OneToMany(mappedBy: 'providerEntity', targetEntity: DatasetInfo::class)]
+    private Collection $datasets;
+
     public function __construct(string $code)
     {
         $this->code = $code;
+        $this->datasets = new ArrayCollection();
     }
 
     public function getCode(): ?string
@@ -182,6 +189,31 @@ class Provider
     public function getSyncedAt(): ?\DateTime
     {
         return $this->syncedAt;
+    }
+
+    /** @return Collection<int, DatasetInfo> */
+    public function getDatasets(): Collection
+    {
+        return $this->datasets;
+    }
+
+    public function addDataset(DatasetInfo $dataset): self
+    {
+        if (!$this->datasets->contains($dataset)) {
+            $this->datasets->add($dataset);
+            $dataset->setProviderEntity($this);
+        }
+
+        return $this;
+    }
+
+    public function removeDataset(DatasetInfo $dataset): self
+    {
+        if ($this->datasets->removeElement($dataset) && $dataset->getProviderEntity() === $this) {
+            $dataset->setProviderEntity(null);
+        }
+
+        return $this;
     }
 
     public function __toString()

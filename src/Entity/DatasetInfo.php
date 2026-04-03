@@ -60,6 +60,10 @@ final class DatasetInfo
     #[Groups(['dataset:read'])]
     public ?string $aggregator = null;    // dc | pp | fortepan | mds | mus | etc.
 
+    #[ORM\ManyToOne(targetEntity: Provider::class, inversedBy: 'datasets')]
+    #[ORM\JoinColumn(name: 'provider_code', referencedColumnName: 'code', nullable: true, onDelete: 'SET NULL')]
+    public ?Provider $providerEntity = null;
+
     #[ORM\Column(nullable: true)]
     #[Groups(['dataset:read'])]
     public ?string $locale = null;        // default locale: en | de | hu | etc.
@@ -215,6 +219,18 @@ final class DatasetInfo
     public function hasNormalized(): bool { return $this->normalizedPath !== null && is_file($this->normalizedPath); }
     public function hasProfile(): bool    { return $this->profilePath !== null && is_file($this->profilePath); }
     public function hasPixieDb(): bool    { return $this->pixieDbPath !== null && is_file($this->pixieDbPath); }
+
+    public function getProviderEntity(): ?Provider
+    {
+        return $this->providerEntity;
+    }
+
+    public function setProviderEntity(?Provider $provider): self
+    {
+        $this->providerEntity = $provider;
+
+        return $this;
+    }
 
     public function isReadyForPixie(): bool
     {

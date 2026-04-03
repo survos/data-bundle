@@ -109,7 +109,8 @@ final class DataPaths
 
     public function __construct(
         public private(set) string $dataDir,
-        public private(set) string $datasetRoot = 'data',
+        public private(set) string $worksRoot = 'work',
+        public private(set) string $datasetRoot = 'work', // renamed, 4/3
         public private(set) string $pixieRoot = 'pixie',
         public private(set) string $runsRoot = 'runs',
         public private(set) string $cacheRoot = 'cache',
@@ -126,8 +127,7 @@ final class DataPaths
             'profile'    => '21_profile',
             'terms'      => '30_terms',
             'ai'         => '40_ai',
-            'ai-batches' => '40_ai',
-            'ai_batches' => '40_ai',
+            'ai_batches' => '40_ai', // smells...
 
             // allow direct numeric stage keys too (identity mapping handled in stageDir()).
         ];
@@ -136,6 +136,7 @@ final class DataPaths
     public string $root { get => rtrim($this->dataDir, '/'); }
 
     public string $datasetsRoot { get => "{$this->root}/{$this->datasetRoot}"; }
+    public string $workRoot { get => "{$this->root}/{$this->worksRoot}"; }
     public string $pixieRootDir { get => "{$this->root}/{$this->pixieRoot}"; }
     public string $runsRootDir { get => "{$this->root}/{$this->runsRoot}"; }
     public string $cacheRootDir { get => "{$this->root}/{$this->cacheRoot}"; }

@@ -6,12 +6,12 @@ namespace Survos\DataBundle\Command;
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DataBundle\Entity\DatasetInfo;
 use Survos\DataBundle\Repository\DatasetInfoRepository;
-use Survos\DataBundle\Service\DataPaths;
+use Survos\DataBundle\Repository\ProviderRepository;
 use Survos\DataBundle\Service\DatasetPaths;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\Yaml\Yaml;
 
 /**
  * Scans APP_DATA_DIR for 00_meta/dataset.yaml files and populates DatasetInfo.
@@ -24,11 +24,14 @@ use Symfony\Component\Yaml\Yaml;
  *   bin/console data:scan-datasets --provider=fortepan
  *   bin/console data:scan-datasets --provider=dc --limit=10
  */
-#[AsCommand('data:scan-datasets', 'Scan APP_DATA_DIR for 00_meta/dataset.yaml + pixie DBs and populate DatasetInfo registry')]
+#[AsCommand('data:scan-datasets',
+    'Scan APP_DATA_DIR for 00_meta/dataset.json + pixie DBs and populate DatasetInfo registry')]
 final class ScanDatasetsCommand extends DataCommand
 {
     public function __construct(
         private readonly EntityManagerInterface $em,
+        private readonly ProviderRepository $providerRepo,
+        private readonly DatasetInfoRepository $datasetRepository,
     ) {}
 
     public function __invoke(
@@ -41,64 +44,114 @@ final class ScanDatasetsCommand extends DataCommand
     ): int {
         $io->title('Scanning datasets → DatasetInfo registry');
 
-        /** @var DatasetInfoRepository $repo */
-        $repo    = $this->em->getRepository(DatasetInfo::class);
+        $repo    = $this->datasetRepository;
         $created = $updated = $skipped = 0;
         $count   = 0;
 
-        // ── Phase 1: Scan 00_meta/dataset.yaml files ──────────────────────────
-        $root = $this->dataPaths->datasetsRoot;
+        // ── Provider preflight: all provider dirs must have provider.json + DB row ──
+        $root = $this->dataPaths->workRoot;
+        $providerDirs = $this->listProviderDirs($root, $provider);
 
-        // Prefer JSON (fast), fall back to YAML (legacy)
-        $jsonFiles = glob($provider ? $root.'/'.$provider.'/*/00_meta/dataset.json' : $root.'/*/*/00_meta/dataset.json') ?: [];
-        $yamlFiles = glob($provider ? $root.'/'.$provider.'/*/00_meta/dataset.yaml' : $root.'/*/*/00_meta/dataset.yaml') ?: [];
-        $jsonDirs  = array_map('dirname', $jsonFiles);
-        $yamlOnly  = array_values(array_filter($yamlFiles, fn($f) => !in_array(dirname($f), $jsonDirs, true)));
-        $files     = array_merge($jsonFiles, $yamlOnly);
+        if ($providerDirs === []) {
+            $io->warning(sprintf('No provider directories found in %s', $root));
+            return Command::SUCCESS;
+        }
 
-        $io->text(sprintf('Phase 1: %d meta files (%d JSON, %d YAML-only) in %s', count($files), count($jsonFiles), count($yamlOnly), $root));
+        $missingProviderJson = [];
+        $missingProviderRows = [];
+        $providersByCode = [];
 
-        foreach ($files as $metaFile) {
-            if ($limit > 0 && $count >= $limit) {
-                break;
-            }
-
-            $meta = str_ends_with($metaFile, '.json')
-                ? json_decode(file_get_contents($metaFile), true, 512, JSON_THROW_ON_ERROR)
-                : Yaml::parseFile($metaFile);
-            $meta = $this->normalizeMeta($meta);
-            $datasetKey = $meta['dataset_key'] ?? $meta['datasetKey'] ?? null;
-            if (!$datasetKey) {
+        foreach ($providerDirs as $providerCode => $providerDir) {
+            $providerJsonFile = $providerDir . '/provider.json';
+            if (!is_file($providerJsonFile)) {
+                $missingProviderJson[] = $providerJsonFile;
                 continue;
             }
 
-            $existing = $repo->find($datasetKey);
-
-            if ($existing && !$force && !$statusOnly) {
-                $skipped++;
+            $providerEntity = $this->providerRepo->findOneByCode($providerCode);
+            if (!$providerEntity) {
+                $missingProviderRows[] = $providerCode;
                 continue;
             }
 
-            $info = $existing ?? new DatasetInfo($datasetKey);
+            $providersByCode[$providerCode] = $providerEntity;
+        }
 
-            if (!$statusOnly) {
-                $this->populateFromMeta($info, $meta, $metaFile);
+        if ($missingProviderJson !== [] || $missingProviderRows !== []) {
+            if ($missingProviderJson !== []) {
+                $io->error('Provider directories missing provider.json:');
+                $io->listing($missingProviderJson);
+            }
+            if ($missingProviderRows !== []) {
+                $io->error('Provider directories missing Provider DB rows (run agg:sync in md):');
+                $io->listing($missingProviderRows);
             }
 
-            if (!$existing) {
-                $this->em->persist($info);
-                $created++;
-            } else {
-                $updated++;
+            return Command::FAILURE;
+        }
+
+        // ── Phase 1: scan each provider dir for dataset metadata JSON ─────────────
+        $totalMetaFiles = 0;
+        foreach ($providerDirs as $providerCode => $providerDir) {
+            if (!isset($providersByCode[$providerCode])) {
+                continue;
             }
 
-            $count++;
+            $files = glob($providerDir . '/*/00_meta/dataset.json', GLOB_NOSORT) ?: [];
+            $totalMetaFiles += count($files);
 
-            if ($count % 100 === 0) {
-                $this->em->flush();
-                $io->text(sprintf('  %d processed...', $count));
+            foreach ($files as $metaFile) {
+                if ($limit > 0 && $count >= $limit) {
+                    break 2;
+                }
+
+                $meta = json_decode(file_get_contents($metaFile), true, 512, JSON_THROW_ON_ERROR);
+                $meta = $this->normalizeMeta($meta);
+                $datasetKey = $meta['dataset_key'] ?? $meta['datasetKey'] ?? null;
+                if (!$datasetKey) {
+                    $code = basename(dirname(dirname($metaFile)));
+                    $datasetKey = sprintf('%s/%s', $providerCode, $code);
+                }
+
+                $datasetProvider = explode('/', $datasetKey, 2)[0] ?? '';
+                if ($datasetProvider !== $providerCode) {
+                    $io->warning(sprintf('Skipping %s (datasetKey provider "%s" != dir provider "%s")', $metaFile, $datasetProvider, $providerCode));
+                    continue;
+                }
+
+                $existing = $repo->find($datasetKey);
+
+                if ($existing && !$force && !$statusOnly) {
+                    $existing->setProviderEntity($providersByCode[$providerCode]);
+                    $updated++;
+                    $count++;
+                    continue;
+                }
+
+                $info = $existing ?? new DatasetInfo($datasetKey);
+                $info->setProviderEntity($providersByCode[$providerCode]);
+
+                if (!$statusOnly) {
+                    $this->populateFromMeta($info, $meta, $metaFile);
+                }
+
+                if (!$existing) {
+                    $this->em->persist($info);
+                    $created++;
+                } else {
+                    $updated++;
+                }
+
+                $count++;
+
+                if ($count % 100 === 0) {
+                    $this->em->flush();
+                    $io->text(sprintf('  %d processed...', $count));
+                }
             }
         }
+
+        $io->text(sprintf('Phase 1: %d provider(s), %d meta files in %s', count($providerDirs), $totalMetaFiles, $root));
 
         $this->em->flush();
 
@@ -144,10 +197,25 @@ final class ScanDatasetsCommand extends DataCommand
         }
         $this->em->flush();
 
+        // ── Phase 4: refresh provider dataset counts (cached on Provider) ─────
+        $providerCountRows = [];
+        foreach ($providersByCode as $providerCode => $providerEntity) {
+            $datasetCount = $repo->count(['providerEntity' => $providerEntity]);
+            $providerEntity->setDatasetCount($datasetCount);
+            $providerEntity->setSyncedAt(new \DateTime());
+
+            $providerCountRows[] = [$providerCode, (string) $datasetCount];
+        }
+        usort($providerCountRows, static fn(array $a, array $b): int => $a[0] <=> $b[0]);
+        $this->em->flush();
+
         $io->success(sprintf(
             'Done — created: %d, updated: %d, skipped: %d, pixie DBs matched: %d',
             $created, $updated, $skipped, $pixieUpdated
         ));
+
+        $io->section('Provider dataset counts');
+        $io->table(['Provider', 'Dataset count'], $providerCountRows);
 
         // Show what has pixie DBs
         $withDb = $repo->createQueryBuilder('d')
@@ -163,7 +231,7 @@ final class ScanDatasetsCommand extends DataCommand
                     $info->datasetKey,
                     $info->label ?? '-',
                     $info->pixieRowCount ? number_format($info->pixieRowCount) : '?',
-                    round($info->pixieDbSize / 1024) . ' KB',
+                    round($info->pixieDbSize??0 / 1024) . ' KB',
                     $info->status,
                 ];
             }
@@ -171,6 +239,34 @@ final class ScanDatasetsCommand extends DataCommand
         }
 
         return 0;
+    }
+
+    /** @return array<string,string> providerCode => absolutePath */
+    private function listProviderDirs(string $root, ?string $providerFilter): array
+    {
+        if (!is_dir($root)) {
+            return [];
+        }
+
+        $providerFilter = $providerFilter !== null ? strtolower(trim($providerFilter)) : null;
+        $providerDirs = [];
+
+        foreach (new \DirectoryIterator($root) as $entry) {
+            if (!$entry->isDir() || $entry->isDot()) {
+                continue;
+            }
+
+            $providerCode = strtolower($entry->getFilename());
+            if ($providerFilter !== null && $providerFilter !== '' && $providerCode !== $providerFilter) {
+                continue;
+            }
+
+            $providerDirs[$providerCode] = $entry->getPathname();
+        }
+
+        ksort($providerDirs);
+
+        return $providerDirs;
     }
 
     /** @return array<string,mixed> */
