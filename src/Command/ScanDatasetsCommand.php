@@ -5,9 +5,11 @@ namespace Survos\DataBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DataBundle\Entity\DatasetInfo;
+use Survos\DataBundle\Entity\Provider;
 use Survos\DataBundle\Repository\DatasetInfoRepository;
 use Survos\DataBundle\Repository\ProviderRepository;
 use Survos\DataBundle\Service\DatasetPaths;
+use Survos\DataBundle\Service\ProviderSnapshotCodec;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
@@ -32,6 +34,7 @@ final class ScanDatasetsCommand extends DataCommand
         private readonly EntityManagerInterface $em,
         private readonly ProviderRepository $providerRepo,
         private readonly DatasetInfoRepository $datasetRepository,
+        private readonly ProviderSnapshotCodec $providerSnapshotCodec,
     ) {}
 
     public function __invoke(
@@ -58,7 +61,7 @@ final class ScanDatasetsCommand extends DataCommand
         }
 
         $missingProviderJson = [];
-        $missingProviderRows = [];
+        $invalidProviderJson = [];
         $providersByCode = [];
 
         foreach ($providerDirs as $providerCode => $providerDir) {
@@ -68,27 +71,44 @@ final class ScanDatasetsCommand extends DataCommand
                 continue;
             }
 
-            $providerEntity = $this->providerRepo->findOneByCode($providerCode);
-            if (!$providerEntity) {
-                $missingProviderRows[] = $providerCode;
+            try {
+                $snapshot = $this->providerSnapshotCodec->fromFile($providerJsonFile, $providerCode);
+            } catch (\Throwable $e) {
+                $invalidProviderJson[] = sprintf('%s (%s)', $providerJsonFile, $e->getMessage());
                 continue;
             }
 
+            if ($snapshot->code !== null && strtolower($snapshot->code) !== $providerCode) {
+                $invalidProviderJson[] = sprintf(
+                    '%s (code mismatch: file says "%s", dir is "%s")',
+                    $providerJsonFile,
+                    $snapshot->code,
+                    $providerCode
+                );
+                continue;
+            }
+
+            $providerEntity = $this->providerRepo->findOneByCode($providerCode) ?? new Provider($providerCode);
+            $this->providerSnapshotCodec->applyToProvider($snapshot, $providerEntity);
+            $providerEntity->setSyncedAt(new \DateTime());
+            $this->em->persist($providerEntity);
             $providersByCode[$providerCode] = $providerEntity;
         }
 
-        if ($missingProviderJson !== [] || $missingProviderRows !== []) {
+        if ($missingProviderJson !== [] || $invalidProviderJson !== []) {
             if ($missingProviderJson !== []) {
                 $io->error('Provider directories missing provider.json:');
                 $io->listing($missingProviderJson);
             }
-            if ($missingProviderRows !== []) {
-                $io->error('Provider directories missing Provider DB rows (run agg:sync in md):');
-                $io->listing($missingProviderRows);
+            if ($invalidProviderJson !== []) {
+                $io->error('Invalid provider.json files:');
+                $io->listing($invalidProviderJson);
             }
 
             return Command::FAILURE;
         }
+
+        $this->em->flush();
 
         // ── Phase 1: scan each provider dir for dataset metadata JSON ─────────────
         $totalMetaFiles = 0;
@@ -111,6 +131,10 @@ final class ScanDatasetsCommand extends DataCommand
                 if (!$datasetKey) {
                     $code = basename(dirname(dirname($metaFile)));
                     $datasetKey = sprintf('%s/%s', $providerCode, $code);
+                }
+
+                if (!str_contains($datasetKey, '/') && str_starts_with($datasetKey, $providerCode . '-')) {
+                    $datasetKey = $providerCode . '/' . substr($datasetKey, strlen($providerCode) + 1);
                 }
 
                 $datasetProvider = explode('/', $datasetKey, 2)[0] ?? '';

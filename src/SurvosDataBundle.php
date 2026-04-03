@@ -19,6 +19,7 @@ use Survos\DataBundle\Repository\DatasetInfoRepository;
 use Survos\DataBundle\Repository\ProviderRepository;
 use Survos\DataBundle\Twig\Components\ProviderListComponent;
 use Survos\DataBundle\Service\DataPaths;
+use Survos\DataBundle\Service\ProviderSnapshotCodec;
 use Survos\DataBundle\Service\SurvosDatasetPathsFactory;
 use Survos\ImportBundle\Contract\DatasetContextInterface;
 use Survos\ImportBundle\Contract\DatasetPathsFactoryInterface;
@@ -37,7 +38,7 @@ final class SurvosDataBundle extends AbstractBundle
         $definition->rootNode()
             ->children()
                 ->scalarNode('data_dir')->defaultValue('%env(APP_DATA_DIR)%')->end()
-                ->scalarNode('dataset_root')->defaultValue('data')->end()
+                ->scalarNode('dataset_root')->defaultValue('work')->end()
                 ->scalarNode('pixie_root')->defaultValue('pixie')->end()
                 ->scalarNode('runs_root')->defaultValue('runs')->end()
                 ->scalarNode('cache_root')->defaultValue('cache')->end()
@@ -72,6 +73,11 @@ final class SurvosDataBundle extends AbstractBundle
                 '$zipsRoot' => $config['zips_root'],
                 '$defaultObjectFilename' => $config['default_object_filename'],
             ]);
+
+        $services->set(ProviderSnapshotCodec::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public();
 
         foreach ([DatasetMetadataConfiguration::class, DatasetMetadataLoader::class, DatasetMetadataEnsurer::class] as $class) {
             $services->set($class)

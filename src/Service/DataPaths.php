@@ -154,7 +154,7 @@ final class DataPaths
     public function datasetDir(string $datasetKey): string
     {
         $parsed = $this->parseDatasetRef($datasetKey);
-        return "{$this->datasetsRoot}/{$parsed['provider']}/{$parsed['code']}";
+        return "{$this->workRoot}/{$parsed['provider']}/{$parsed['code']}";
     }
 
     /**
