@@ -20,6 +20,8 @@
                         {% endif %}
                         <div class="d-flex gap-2 flex-wrap">
                             <span class="badge bg-primary-lt">{{ provider.datasetCount }} datasets</span>
+                            <span class="badge bg-azure-lt">{{ provider.candidateCount }} candidates</span>
+{{ dump(provider) }}
                             {% if provider.indexInfos %}
                                 {% for idx in provider.indexInfos %}
                                     <a href="{{ path('meili_insta', {indexName: idx.indexName}) }}" class="badge bg-success-lt text-decoration-none" target="_blank" title="{{ idx.label }}">
@@ -31,7 +33,7 @@
                     </div>
                     <div class="card-footer">
                         <div class="d-flex gap-2">
-                            <a href="{{ path('provider_show', {provider: provider.code}) }}" class="btn btn-sm btn-outline">Browse</a>
+                            <a href="{{ provider.showUrl }}" class="btn btn-sm btn-outline">Browse</a>
                             <a href="{{ provider.apiUrl }}" class="btn btn-sm btn-outline" target="_blank" title="API Platform">API</a>
                             <a href="{{ path('meili_insta', {indexName: 'md_' ~ provider.code}) }}" class="btn btn-sm btn-outline" target="_blank">Search</a>
                         </div>

@@ -157,6 +157,35 @@ final class DataPaths
         return "{$this->workRoot}/{$parsed['provider']}/{$parsed['code']}";
     }
 
+    public function providerRoot(string $providerId): string
+    {
+        $provider = $this->sanitizeToken($providerId);
+
+        return "{$this->workRoot}/{$provider}";
+    }
+
+    public function candidateJsonlFilename(string $providerId): string
+    {
+        return $this->providerRoot($providerId) . '/candidates.jsonl';
+    }
+
+    public function providerArchiveRoot(string $providerId): string
+    {
+        $provider = $this->sanitizeToken($providerId);
+
+        return "{$this->zipsRootDir}/{$provider}";
+    }
+
+    public function providerArchiveFile(string $providerId, string $relativePath): string
+    {
+        $relativePath = ltrim(trim($relativePath), '/');
+        if ($relativePath === '' || str_contains($relativePath, "\0") || str_contains($relativePath, '..')) {
+            throw new \InvalidArgumentException('Invalid archive relative path.');
+        }
+
+        return $this->providerArchiveRoot($providerId) . '/' . $relativePath;
+    }
+
     /**
      * Resolve a stage directory for a dataset.
      *

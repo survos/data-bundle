@@ -27,4 +27,6 @@ final class ProviderSnapshot
     public ?string $dataReuse = null;
     #[Groups(['provider:snapshot'])]
     public ?string $termsUrl = null;
+    #[Groups(['provider:snapshot'])]
+    public ?string $entityProviderClass = null;
 }

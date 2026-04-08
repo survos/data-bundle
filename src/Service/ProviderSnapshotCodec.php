@@ -57,6 +57,7 @@ final class ProviderSnapshotCodec
             'defaultLocale' => $snapshot->defaultLocale,
             'dataReuse' => $snapshot->dataReuse,
             'termsUrl' => $snapshot->termsUrl,
+            'entityProviderClass' => $snapshot->entityProviderClass,
         ];
     }
 

@@ -27,7 +27,7 @@ final class DataHeadCommand
         string $dataset,
 
         #[Argument('Stage alias (raw|normalize|profile|terms|...)')]
-        string $stage,
+        ?string $stage = null,
 
         #[Option('Filename within stage (defaults to obj.jsonl)')]
         ?string $file = null,
@@ -41,6 +41,7 @@ final class DataHeadCommand
         }
 
         $datasetRef = trim($dataset);
+        $stage ??= 'normalize';
         $stageDir = $this->paths->stageDir($datasetRef, $stage);
 
         $target = $stageDir;

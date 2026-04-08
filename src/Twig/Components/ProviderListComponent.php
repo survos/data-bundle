@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle\Twig\Components;
 
+use Survos\DataBundle\Repository\CandidateRepository;
 use Survos\DataBundle\Repository\ProviderRepository;
 use Survos\MeiliBundle\Repository\IndexInfoRepository;
 use Survos\MeiliBundle\Service\MeiliService;
@@ -18,6 +19,7 @@ final class ProviderListComponent
 
     public function __construct(
         private readonly ProviderRepository $providerRepository,
+        private readonly CandidateRepository $candidateRepository,
         private readonly MeiliService $meiliService,
         private readonly IndexInfoRepository $indexInfoRepository,
         private readonly RouterInterface $router,
@@ -27,6 +29,7 @@ final class ProviderListComponent
     public function mount(): void
     {
         $providers = $this->providerRepository->findAllOrdered();
+        $candidateCounts = $this->candidateRepository->countByProviderCode();
 
         $rows = [];
         foreach ($providers as $provider) {
@@ -49,8 +52,10 @@ final class ProviderListComponent
                 'description' => $provider->getDescription(),
                 'homepage' => $provider->getHomepage(),
                 'datasetCount' => $provider->getDatasetCount() ?? 0,
+                'candidateCount' => $candidateCounts[$code] ?? 0,
                 'indexInfos' => array_values($indexInfos),
                 'apiUrl' => $apiUrl,
+                'showUrl' => $this->router->generate('data_bundle_provider_show', ['provider' => $code]),
             ];
         }
 

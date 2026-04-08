@@ -10,11 +10,13 @@ use Survos\DataBundle\Command\DataPathCommand;
 use Survos\DataBundle\Command\ScanDatasetsCommand;
 use Survos\DataBundle\Context\DatasetContext;
 use Survos\DataBundle\Context\DatasetResolver;
+use Survos\DataBundle\Controller\ProviderController;
 use Survos\DataBundle\Entity\DatasetInfo;
 use Survos\DataBundle\EventListener\DatasetContextConsoleListener;
 use Survos\DataBundle\Meta\DatasetMetadataConfiguration;
 use Survos\DataBundle\Meta\DatasetMetadataEnsurer;
 use Survos\DataBundle\Meta\DatasetMetadataLoader;
+use Survos\DataBundle\Repository\CandidateRepository;
 use Survos\DataBundle\Repository\DatasetInfoRepository;
 use Survos\DataBundle\Repository\ProviderRepository;
 use Survos\DataBundle\Twig\Components\ProviderListComponent;
@@ -24,7 +26,6 @@ use Survos\DataBundle\Service\SurvosDatasetPathsFactory;
 use Survos\ImportBundle\Contract\DatasetContextInterface;
 use Survos\ImportBundle\Contract\DatasetPathsFactoryInterface;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
-use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -120,6 +121,12 @@ final class SurvosDataBundle extends AbstractBundle
             ->public()
             ->tag('doctrine.repository_service');
 
+        $services->set(CandidateRepository::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public()
+            ->tag('doctrine.repository_service');
+
         $services->set(ProviderRepository::class)
             ->autowire()
             ->autoconfigure()
@@ -127,6 +134,11 @@ final class SurvosDataBundle extends AbstractBundle
             ->tag('doctrine.repository_service');
 
         $services->set(ProviderListComponent::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public();
+
+        $services->set(ProviderController::class)
             ->autowire()
             ->autoconfigure()
             ->public();
@@ -148,6 +160,7 @@ final class SurvosDataBundle extends AbstractBundle
     public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         $entityDir = dirname(__DIR__) . '/src/Entity';
+        $templateDir = dirname(__DIR__) . '/templates';
 
         if ($builder->hasExtension('doctrine')) {
             $builder->prependExtensionConfig('doctrine', [
@@ -172,10 +185,30 @@ final class SurvosDataBundle extends AbstractBundle
                 ],
             ]);
         }
+
+        if ($builder->hasExtension('twig')) {
+            $builder->prependExtensionConfig('twig', [
+                'paths' => [
+                    $templateDir => 'SurvosDataBundle',
+                ],
+            ]);
+        }
+
+        if ($builder->hasExtension('twig_component')) {
+            $builder->prependExtensionConfig('twig_component', [
+                'defaults' => [
+                    'Survos\\DataBundle\\Twig\\Components\\' => [
+                        'template_directory' => '@SurvosDataBundle/components/',
+                    ],
+                ],
+            ]);
+        }
     }
 
     public function configureRoutes(RoutingConfigurator $routes): void
     {
+        $routes->import(dirname(__DIR__) . '/src/Controller/', 'attribute');
+
         if (!class_exists('ApiPlatform\\Action\\PlaceholderAction')) {
             return;
         }
@@ -201,19 +234,4 @@ final class SurvosDataBundle extends AbstractBundle
             ]);
     }
 
-    public function build(ContainerBuilder $container): void
-    {
-        $container->addCompilerPass(new class() implements CompilerPassInterface {
-            public function process(ContainerBuilder $container): void
-            {
-                if ($container->hasExtension('twig')) {
-                    $container->loadFromExtension('twig', [
-                        'paths' => [
-                            dirname(__DIR__) . '/templates' => 'SurvosDataBundle',
-                        ],
-                    ]);
-                }
-            }
-        });
-    }
 }
