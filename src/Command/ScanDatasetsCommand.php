@@ -111,48 +111,6 @@ final class ScanDatasetsCommand extends DataCommand
 
         $this->em->flush();
 
-        // ── Phase 0: seed DatasetInfo rows from provider candidates.jsonl ───────
-        $candidateRows = 0;
-        foreach ($providerDirs as $providerCode => $providerDir) {
-            if (!isset($providersByCode[$providerCode])) {
-                continue;
-            }
-
-            $candidateFile = $this->dataPaths->candidateJsonlFilename($providerCode);
-            if (!is_file($candidateFile)) {
-                continue;
-            }
-
-            foreach (JsonlReader::open($candidateFile) as $row) {
-                if (!is_array($row)) {
-                    continue;
-                }
-
-                $datasetKey = $this->datasetKeyFromCandidateRow($providerCode, $row);
-                if ($datasetKey === null) {
-                    continue;
-                }
-
-                $existing = $repo->find($datasetKey);
-                $info = $existing ?? new DatasetInfo($datasetKey);
-                $info->setProviderEntity($providersByCode[$providerCode]);
-                $this->populateFromCandidate($info, $providerCode, $row, $candidateFile);
-
-                if (!$existing) {
-                    $this->em->persist($info);
-                    $created++;
-                } else {
-                    $updated++;
-                }
-
-                $candidateRows++;
-            }
-        }
-
-        if ($candidateRows > 0) {
-            $this->em->flush();
-        }
-
         // ── Phase 1: scan each provider dir for dataset metadata JSON ─────────────
         $totalMetaFiles = 0;
         foreach ($providerDirs as $providerCode => $providerDir) {
@@ -218,7 +176,6 @@ final class ScanDatasetsCommand extends DataCommand
             }
         }
 
-        $io->text(sprintf('Phase 0: %d candidate rows read from %s', $candidateRows, $root));
         $io->text(sprintf('Phase 1: %d provider(s), %d meta files in %s', count($providerDirs), $totalMetaFiles, $root));
 
         $this->em->flush();
@@ -364,60 +321,6 @@ final class ScanDatasetsCommand extends DataCommand
             $pos = strpos($pixieCode, '_', $pos + 1);
         }
         return null;
-    }
-
-    /** @param array<string,mixed> $row */
-    private function datasetKeyFromCandidateRow(string $providerCode, array $row): ?string
-    {
-        $datasetKey = $row['datasetKey'] ?? $row['dataset_key'] ?? null;
-        if (is_string($datasetKey) && $datasetKey !== '') {
-            return $datasetKey;
-        }
-
-        $candidateKey = $row['candidateKey'] ?? $row['candidate_key'] ?? null;
-        if (is_string($candidateKey) && $candidateKey !== '') {
-            return $candidateKey;
-        }
-
-        $sourceId = $row['sourceId'] ?? $row['source_id'] ?? null;
-        if (is_string($sourceId) && $sourceId !== '') {
-            return sprintf('%s/%s', $providerCode, $sourceId);
-        }
-
-        return null;
-    }
-
-    /** @param array<string,mixed> $row */
-    private function populateFromCandidate(DatasetInfo $info, string $providerCode, array $row, string $sourceFile): void
-    {
-        $info->aggregator ??= $providerCode;
-        $info->label = is_string($row['label'] ?? null) ? $row['label'] : $info->label;
-        $info->description = is_string($row['description'] ?? null) ? $row['description'] : $info->description;
-        $info->locale = is_string($row['locale'] ?? null) ? $row['locale'] : $info->locale;
-        $info->country = is_string($row['country'] ?? null) ? $row['country'] : $info->country;
-        $info->contactUrl = is_string($row['sourceUrl'] ?? null) ? $row['sourceUrl'] : $info->contactUrl;
-        $info->lastScanned ??= new \DateTimeImmutable();
-
-        $candidateStatus = is_string($row['status'] ?? null) && $row['status'] !== ''
-            ? $row['status']
-            : 'candidate';
-        if ($info->status === 'discovered' || $info->status === '' || $info->status === null) {
-            $info->status = $candidateStatus;
-        }
-
-        $meta = is_array($info->meta ?? null) ? $info->meta : [];
-        $candidateMeta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
-        $meta['candidate'] = array_filter([
-            'candidateKey' => $row['candidateKey'] ?? $row['candidate_key'] ?? null,
-            'providerCode' => $row['providerCode'] ?? $row['provider_code'] ?? $providerCode,
-            'sourceId' => $row['sourceId'] ?? $row['source_id'] ?? null,
-            'kind' => $row['kind'] ?? null,
-            'sourceUrl' => $row['sourceUrl'] ?? $row['source_url'] ?? null,
-            'status' => $candidateStatus,
-            'file' => $sourceFile,
-            'meta' => $candidateMeta,
-        ], static fn(mixed $value): bool => $value !== null && $value !== '' && $value !== []);
-        $info->meta = $meta;
     }
 
     private function populateFromMeta(DatasetInfo $info, array $meta, string $metaFile): void
