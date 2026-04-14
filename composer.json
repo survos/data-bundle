@@ -22,7 +22,7 @@
         "symfony/serializer": "^8.0",
         "symfony/filesystem": "^8.0",
         "symfony/console": "^8.0",
-        "symfony/ux-twig-component": "^2.0",
+        "symfony/ux-twig-component": "^2.0|^3.0",
         "survos/meili-bundle": "^2.0"
     },
     "require-dev": {
