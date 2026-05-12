@@ -11,11 +11,12 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand('data:diag', 'Diagnose APP_DATA_DIR layout and show file stats (datasets or aggregators).')]
-final class DataDiagCommand
+final class DataDiagCommand extends Command
 {
     public function __construct(
         private readonly DataPaths $paths,
     ) {
+        parent::__construct();
     }
 
     public function __invoke(
@@ -276,7 +277,7 @@ final class DataDiagCommand
     private function countJsonlLinesInDir(string $dir): int
     {
         if (!is_dir($dir)) {
-            return Command::SUCCESS;
+            return 0;
         }
 
         $lines = 0;
@@ -305,7 +306,7 @@ final class DataDiagCommand
     {
         $h = fopen($file, 'rb');
         if ($h === false) {
-            return Command::SUCCESS;
+            return 0;
         }
 
         $count = 0;
@@ -325,7 +326,7 @@ final class DataDiagCommand
     {
         $h = gzopen($file, 'rb');
         if ($h === false) {
-            return Command::SUCCESS;
+            return 0;
         }
 
         $count = 0;
