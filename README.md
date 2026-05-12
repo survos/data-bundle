@@ -1,56 +1,73 @@
-# museado/data-bundle
+# Survos Data Bundle
 
-A small Symfony bundle that standardizes where Museado-related data lives on disk
-and provides a single, typed service for resolving dataset, pipeline, and Pixie paths.
+`survos/data-bundle` centralizes dataset filesystem conventions for
+dataset-driven Symfony applications.
 
-This bundle intentionally does one thing only: path conventions and filesystem helpers
-around `APP_DATA_DIR`.
+Despite the historical name, this bundle is not the owner of shared semantic
+metadata contracts. It manages where dataset files, provider metadata, Pixie
+databases, run artifacts, cache files, and related JSONL outputs live.
 
-It is designed to be used by:
+For shared vocabulary and typed metadata contracts, use
+`survos/data-contracts`.
 
-- Museado (the main site / pipeline runner)
-- Aggregator microservices (Smithsonian, Europeana, etc.)
-- Pixie-only reader sites
+## Scope
 
-without forcing those apps to depend on each other.
+This bundle provides:
 
+- `DataPaths`: root-level path resolution under `APP_DATA_DIR`
+- `DatasetPaths`: dataset-scoped path helpers
+- dataset metadata loading and ensuring
+- `DatasetInfo` / `Provider` registry entities
+- provider snapshot encoding
+- dataset context helpers for console/import workflows
+- commands for browsing, diagnosing, and resolving dataset paths
 
-## Core idea
+This bundle does not provide:
 
-All domain data lives under a single directory defined by:
+- Dublin Core vocabulary constants
+- collection-object DTO contracts
+- metadata claim storage
+- AI workflow execution
+- media upload, IIIF, or mediary publishing
+- import/normalize/profile logic
 
+## Relationship to Other Packages
+
+- `survos/data-contracts`: shared metadata vocabulary and DTO contracts.
+- `survos/data-bundle`: dataset paths, provider storage, and dataset registry.
+- `survos/import-bundle`: import/convert workflows that may ask this bundle for
+  dataset paths.
+- `survos/ai-workflow-bundle`: task execution in apps that own subject context.
+- claims bundle: tracked metadata assertions with provenance and confidence.
+- `survos/media-bundle`: media identity and mediary publishing.
+
+The dependency direction should stay honest: packages should require
+`survos/data-contracts` directly when they only need `DcTerms`, `ContentType`,
+or metadata DTOs. Do not require this bundle just to get vocabulary classes.
+
+## Core Idea
+
+All dataset work lives under a single root directory:
+
+```bash
+APP_DATA_DIR=/absolute/path/to/data/root
 ```
-APP_DATA_DIR
-```
 
-Nothing in this bundle depends on repository-relative paths, symlinks,
-or `.gitignore` tricks.
+The bundle avoids repository-relative paths and gives services and commands one
+place to ask for canonical locations.
 
+Example layout:
 
-## Recommended directory layout
-
-Example values:
-
-Local development:
-```
-APP_DATA_DIR=$HOME/data/mus
-```
-
-Dokku / containers:
-```
-APP_DATA_DIR=/data/mus
-```
-
-Layout under that directory:
-
-```
+```text
 $APP_DATA_DIR/
-  data/
-    <unitCode>/
+  work/
+    <datasetKey>/
+      00_meta/
+        dataset.json
       10_extract/
-        obj.jsonl(.gz)
+        obj.jsonl
       20_normalize/
-        obj.jsonl(.gz)
+        obj.jsonl
       21_profile/
         obj.profile.json
       30_terms/
@@ -64,80 +81,75 @@ $APP_DATA_DIR/
   cache/
 ```
 
-Notes:
-
-- `<unitCode>` is typically `aaa`, `nmah`, `nmnhbirds`, etc.
-- Pixie databases are not stored under `data/`
-- The layout is intentionally shallow and predictable
-
-
 ## Installation
 
 ```bash
-composer require museado/data-bundle
+composer require survos/data-bundle
 ```
 
-Set the environment variable:
+Set the root directory:
 
 ```bash
 export APP_DATA_DIR=/absolute/path/to/data/root
 ```
 
-That is the only required configuration.
-
-
 ## Usage
 
-Inject the `DataPaths` service anywhere you need filesystem paths.
+Inject `DataPaths` for root and dataset path resolution:
 
 ```php
-use Museado\DataBundle\Service\DataPaths;
+use Survos\DataBundle\Service\DataPaths;
 
 final class SomeService
 {
     public function __construct(
-        private DataPaths $paths
-    ) {}
+        private readonly DataPaths $paths,
+    ) {
+    }
 }
 ```
 
-
-### Dataset paths
+Common dataset paths:
 
 ```php
-$paths->datasetDir('aaa');
-$paths->extractDir('aaa');
-$paths->extractFile('aaa');
-
-$paths->normalizeDir('aaa');
-$paths->normalizeFile('aaa');
-
-$paths->profileDir('aaa');
-$paths->profileFile('aaa');
-
-$paths->termsDir('aaa');
+$paths->datasetDir('dc/tb09jw350');
+$paths->extractDir('dc/tb09jw350');
+$paths->extractFile('dc/tb09jw350');
+$paths->normalizeDir('dc/tb09jw350');
+$paths->normalizeFile('dc/tb09jw350');
+$paths->profileDir('dc/tb09jw350');
+$paths->profileFile('dc/tb09jw350');
+$paths->termsDir('dc/tb09jw350');
 ```
 
-
-### Pixie paths
+Pixie paths:
 
 ```php
 $paths->pixieTenantDb('larco');
 ```
 
-
-### Operational directories
+Operational directories:
 
 ```php
 $paths->runsDir;
 $paths->cacheDir;
 ```
 
+## Commands
 
-## Directory creation helpers
+Current command names retain the historical `data:*` prefix:
 
-The bundle includes small, safe helpers so commands do not need to
-manually `mkdir` paths.
+```bash
+bin/console data:path dc/tb09jw350 20_normalize
+bin/console data:head dc/tb09jw350 20_normalize --limit=5
+bin/console data:diag dc/tb09jw350
+bin/console data:browse
+bin/console data:scan-datasets
+```
+
+These may eventually move to `dataset:*` aliases when the bundle is renamed.
+
+## Directory Creation
 
 Ensure global roots exist:
 
@@ -145,67 +157,34 @@ Ensure global roots exist:
 $paths->ensureRootDirs();
 ```
 
-Ensure all standard dataset stage directories exist:
+Ensure standard dataset stage directories exist:
 
 ```php
-$paths->ensureDatasetDirs('aaa');
+$paths->ensureDatasetDirs('dc/tb09jw350');
 ```
 
+## Atomic File Writes
 
-## Atomic file writes
-
-For small metadata files (profiles, registries, workflow state):
+For small metadata files:
 
 ```php
 $paths->atomicWrite($path, $contents);
 ```
 
-This writes to a temporary file in the same directory and renames atomically.
+The write uses a temporary file in the same directory followed by an atomic
+rename.
 
+## Design Principles
 
-## Design principles
+- Dataset path conventions are centralized.
+- Paths are semantic, not stringly typed.
+- Dataset/provider storage concerns stay separate from semantic metadata
+  contracts.
+- Import, AI workflow, claims, and media publishing remain in their own
+  packages.
+- The bundle should stay boring and infrastructure-focused.
 
-- No business logic
-- No import, normalize, profile, Pixie, or Meili code
-- No dependency on other Museado bundles
-- Filesystem layout is centralized and versioned
-- Paths are semantic, not stringly-typed
+## Future Rename
 
-This bundle exists so every app in the ecosystem agrees on where things go,
-without duplicating logic or pulling in heavy dependencies.
-
-
-## When to use this bundle
-
-Use `museado/data-bundle` if your code needs to:
-
-- Read or write `10_extract`, `20_normalize`, profiles, or termsets
-- Locate Pixie SQLite databases
-- Share data directories across multiple apps
-- Avoid repo-local `data/` directories
-
-Do **not** use it for:
-
-- Import pipelines
-- Data normalization
-- Profiling
-- Term extraction
-- Search indexing
-- UI or controllers
-
-
-## Status
-
-- Stable
-- PHP ≥ 8.4
-- Symfony ≥ 7.4 (tested with Symfony 8)
-
-This bundle is intended to be boring, stable, and rarely changed.
-
-## Developer
-
-```bash
-composer config repositories.museado-data-bundle '{"type":"path","url":"/home/tac/g/museado/data-bundle","options":{"symlink":true}}'
-composer require museado/data-bundle:@dev
-
-```
+The better long-term name is `survos/dataset-bundle`. See
+[`docs/rename-to-dataset-bundle.md`](docs/rename-to-dataset-bundle.md).
