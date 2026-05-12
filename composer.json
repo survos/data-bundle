@@ -23,7 +23,7 @@
         "symfony/filesystem": "^8.0",
         "symfony/console": "^8.0",
         "symfony/ux-twig-component": "^2.0|^3.0",
-        "survos/meili-bundle": "^2.0"
+        "survos/data-contracts": "^2.0"
     },
     "require-dev": {
         "roave/security-advisories": "dev-latest",
@@ -31,6 +31,5 @@
         "symfony/yaml": "^8.0",
         "survos/import-bundle": "^2.0"
     },
-    "minimum-stability": "stable",
     "prefer-stable": true
 }
