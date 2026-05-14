@@ -7,11 +7,15 @@ use Survos\DataBundle\Command\DataBrowseCommand;
 use Survos\DataBundle\Command\DataDiagCommand;
 use Survos\DataBundle\Command\DataHeadCommand;
 use Survos\DataBundle\Command\DataPathCommand;
+use Survos\DataBundle\Command\DatasetIterateCommand;
 use Survos\DataBundle\Command\ScanDatasetsCommand;
+use Survos\DataBundle\Event\DatasetIterateEvent;
+use Survos\DataBundle\EventListener\SubjectImportListener;
 use Survos\DataBundle\Context\DatasetContext;
 use Survos\DataBundle\Context\DatasetResolver;
 use Survos\DataBundle\Controller\ProviderController;
 use Survos\DataBundle\Entity\DatasetInfo;
+use Survos\DataBundle\Doctrine\SqliteWalMiddleware;
 use Survos\DataBundle\EventListener\DatasetContextConsoleListener;
 use Survos\DataBundle\Meta\DatasetMetadataConfiguration;
 use Survos\DataBundle\Meta\DatasetMetadataEnsurer;
@@ -97,6 +101,12 @@ final class SurvosDataBundle extends AbstractBundle
                 ->public();
         }
 
+        $services->set(SqliteWalMiddleware::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public()
+            ->tag('doctrine.middleware');
+
         foreach ([DatasetContext::class, DatasetResolver::class, DatasetContextConsoleListener::class] as $class) {
             $services->set($class)
                 ->autowire()
@@ -108,8 +118,15 @@ final class SurvosDataBundle extends AbstractBundle
             $services->alias(DatasetContextInterface::class, DatasetContext::class)->public();
         }
 
-        foreach ([DataDiagCommand::class, DataPathCommand::class, DataHeadCommand::class, DataBrowseCommand::class, ScanDatasetsCommand::class] as $class) {
+        foreach ([DataDiagCommand::class, DataPathCommand::class, DataHeadCommand::class, DataBrowseCommand::class, ScanDatasetsCommand::class, DatasetIterateCommand::class] as $class) {
             $services->set($class)
+                ->autowire()
+                ->autoconfigure()
+                ->public();
+        }
+
+        if (class_exists(\Survos\AiWorkflowBundle\Entity\Subject::class)) {
+            $services->set(SubjectImportListener::class)
                 ->autowire()
                 ->autoconfigure()
                 ->public();

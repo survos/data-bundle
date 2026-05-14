@@ -23,6 +23,9 @@ final class DataBrowseCommand
     public function __invoke(
         SymfonyStyle $io,
 
+        #[Argument('Dataset key or provider prefix to browse (e.g. fortepan/hu or fortepan)')]
+        ?string $dataset = null,
+
         #[Option('Filter dataset keys (substring or /regex/)')]
         ?string $pattern = null,
 
@@ -35,6 +38,11 @@ final class DataBrowseCommand
         #[Option('Compute raw/normalized sizes even without -v')]
         bool $sizes = false,
     ): int {
+        // dataset arg acts as a convenient shorthand for --pattern
+        if ($dataset !== null && $dataset !== '') {
+            $pattern ??= $dataset;
+        }
+
         $root = $this->paths->datasetsRoot;
         if (!is_dir($root)) {
             $io->error(sprintf('Datasets root not found: %s', $root));

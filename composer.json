@@ -28,7 +28,11 @@
         "roave/security-advisories": "dev-latest",
         "phpunit/phpunit": "^13.0",
         "symfony/yaml": "^8.0",
-        "survos/import-bundle": "^2.0"
+        "survos/import-bundle": "^2.0",
+        "survos/ai-workflow-bundle": "^2.0"
+    },
+    "suggest": {
+        "survos/ai-workflow-bundle": "Wires DatasetIterateRowEvent → Subject creation for AI workflow pipelines"
     },
     "prefer-stable": true
 }

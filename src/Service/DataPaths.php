@@ -127,7 +127,10 @@ final class DataPaths
             'profile'    => '21_profile',
             'terms'      => '30_terms',
             'ai'         => '40_ai',
-            'ai_batches' => '40_ai', // smells...
+            'claims'     => '40_ai',
+            'enrich'     => '60_enrich',
+            'enriched'   => '60_enrich',
+            'enrich_profile' => '61_profile',
 
             // allow direct numeric stage keys too (identity mapping handled in stageDir()).
         ];
@@ -193,7 +196,7 @@ final class DataPaths
      *  - semantic keys: raw|normalize|profile|terms|...
      *  - canonical stage dirs: 05_raw|20_normalize|...
      */
-    public function stageDir(string $datasetKey, string $stage): string
+    public function stageDir(string $datasetKey, string $stage, bool $create = false): string
     {
         $stage = trim($stage);
         if ($stage === '') {
@@ -208,7 +211,13 @@ final class DataPaths
             $dir = $this->stageMap[$stage];
         }
 
-        return $this->datasetDir($datasetKey) . '/' . $dir;
+        $path = $this->datasetDir($datasetKey) . '/' . $dir;
+
+        if ($create) {
+            $this->filesystem()->mkdir($path);
+        }
+
+        return $path;
     }
 
     public function normalizeRawFilename(string $filename): string
@@ -255,6 +264,18 @@ final class DataPaths
     public function aiDir(string $datasetKey): string
     {
         return $this->stageDir($datasetKey, 'ai');
+    }
+
+    /** Canonical path for a dataset's exported AI claims archive. */
+    public function claimsFile(string $datasetKey, string $filename = 'claims.jsonl'): string
+    {
+        return $this->stageDir($datasetKey, 'claims', create: true) . '/' . $filename;
+    }
+
+    /** Canonical path for the enriched (normalize + AI) JSONL and its profile. */
+    public function enrichFile(string $datasetKey, string $core = 'obj'): string
+    {
+        return $this->stageDir($datasetKey, 'enrich') . '/' . $core . '.jsonl';
     }
 
     /**

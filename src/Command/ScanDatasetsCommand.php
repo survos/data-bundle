@@ -98,15 +98,14 @@ final class ScanDatasetsCommand extends DataCommand
 
         if ($missingProviderJson !== [] || $invalidProviderJson !== []) {
             if ($missingProviderJson !== []) {
-                $io->error('Provider directories missing provider.json:');
+                $io->warning('Provider directories missing provider.json (skipped — run agg:sync to generate):');
                 $io->listing($missingProviderJson);
             }
             if ($invalidProviderJson !== []) {
                 $io->error('Invalid provider.json files:');
                 $io->listing($invalidProviderJson);
+                return Command::FAILURE;
             }
-
-            return Command::FAILURE;
         }
 
         $this->em->flush();
