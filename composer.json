@@ -34,5 +34,11 @@
     "suggest": {
         "survos/ai-workflow-bundle": "Wires DatasetIterateRowEvent → Subject creation for AI workflow pipelines"
     },
-    "prefer-stable": true
+    "prefer-stable": true,
+    "minimum-stability": "beta",
+    "extra": {
+        "symfony": {
+            "require": "^8.1"
+        }
+    }
 }

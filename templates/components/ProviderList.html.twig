@@ -18,18 +18,28 @@
                         {% if provider.description %}
                             <p class="card-text text-muted small">{{ provider.description }}</p>
                         {% endif %}
-                        <div class="d-flex gap-2 flex-wrap">
+                        <div class="d-flex gap-2 flex-wrap mb-2">
                             <span class="badge bg-primary-lt">{{ provider.datasetCount }} datasets</span>
                             <span class="badge bg-azure-lt">{{ provider.candidateCount }} candidates</span>
-{{ dump(provider) }}
                             {% if provider.indexInfos %}
-                                {% for idx in provider.indexInfos %}
+                                {% for idx in provider.indexInfos|slice(0, 10) %}
                                     <a href="{{ path('meili_insta', {indexName: idx.indexName}) }}" class="badge bg-success-lt text-decoration-none" target="_blank" title="{{ idx.label }}">
                                         {{ idx.indexName }}: {{ idx.documentCount|number_format }}
                                     </a>
                                 {% endfor %}
                             {% endif %}
                         </div>
+                        {% if provider.datasets|length %}
+                            {% set total = provider.datasets|length %}
+                            <ul class="list-unstyled small mb-0">
+                                {% for ds in provider.datasets|slice(0, 10) %}
+                                    <li class="text-truncate text-muted" title="{{ ds.datasetKey }}">{{ ds.label ?: ds.datasetKey }}</li>
+                                {% endfor %}
+                                {% if total > 10 %}
+                                    <li class="text-muted fst-italic">+ {{ total - 10 }} more</li>
+                                {% endif %}
+                            </ul>
+                        {% endif %}
                     </div>
                     <div class="card-footer">
                         <div class="d-flex gap-2">

@@ -35,13 +35,13 @@ final class DatasetConfiguration
         // Babel (translation/pipeline config)
         public readonly ?BabelConfiguration $babel = null,
 
-        // Source (more detailed than provider, from pixie Config)
+        // Source (more detailed than provider)
         public readonly ?SourceConfiguration $source = null,
 
         // Upstream
         public readonly ?UpstreamConfiguration $upstream = null,
 
-        // Runtime (from pixie Config)
+        // Runtime
         public readonly ?array $tables = null,
         public readonly ?array $files = null,
         public readonly ?array $templates = null,

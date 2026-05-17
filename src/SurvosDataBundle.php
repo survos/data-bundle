@@ -7,6 +7,7 @@ use Survos\DataBundle\Command\DataBrowseCommand;
 use Survos\DataBundle\Command\DataDiagCommand;
 use Survos\DataBundle\Command\DataHeadCommand;
 use Survos\DataBundle\Command\DataPathCommand;
+use Survos\DataBundle\Command\DataPurgeCommand;
 use Survos\DataBundle\Command\DatasetIterateCommand;
 use Survos\DataBundle\Command\ScanDatasetsCommand;
 use Survos\DataBundle\Event\DatasetIterateEvent;
@@ -14,17 +15,19 @@ use Survos\DataBundle\EventListener\SubjectImportListener;
 use Survos\DataBundle\Context\DatasetContext;
 use Survos\DataBundle\Context\DatasetResolver;
 use Survos\DataBundle\Controller\ProviderController;
-use Survos\DataBundle\Entity\DatasetInfo;
 use Survos\DataBundle\Doctrine\SqliteWalMiddleware;
 use Survos\DataBundle\EventListener\DatasetContextConsoleListener;
 use Survos\DataBundle\Meta\DatasetMetadataConfiguration;
 use Survos\DataBundle\Meta\DatasetMetadataEnsurer;
 use Survos\DataBundle\Meta\DatasetMetadataLoader;
+use Survos\DataBundle\Repository\ArtifactRepository;
 use Survos\DataBundle\Repository\CandidateRepository;
 use Survos\DataBundle\Repository\DatasetInfoRepository;
 use Survos\DataBundle\Repository\ProviderRepository;
+use Survos\DataBundle\Menu\DataMenuSubscriber;
 use Survos\DataBundle\Twig\Components\ProviderListComponent;
 use Survos\DataBundle\Service\DataPaths;
+use Survos\DataBundle\Service\DatasetRegistryUpdater;
 use Survos\DataBundle\Service\ProviderSnapshotCodec;
 use Survos\DataBundle\Service\SurvosDatasetPathsFactory;
 use Survos\ImportBundle\Contract\DatasetContextInterface;
@@ -44,11 +47,16 @@ final class SurvosDataBundle extends AbstractBundle
             ->children()
                 ->scalarNode('data_dir')->defaultValue('%env(APP_DATA_DIR)%')->end()
                 ->scalarNode('dataset_root')->defaultValue('work')->end()
-                ->scalarNode('pixie_root')->defaultValue('pixie')->end()
+                ->scalarNode('artifact_root')->defaultValue('artifacts')->end()
                 ->scalarNode('runs_root')->defaultValue('runs')->end()
                 ->scalarNode('cache_root')->defaultValue('cache')->end()
                 ->scalarNode('zips_root')->defaultValue('%env(ZIPS_DIR)%')->end()
                 ->scalarNode('default_object_filename')->defaultValue('obj.jsonl')->end()
+                ->arrayNode('providers')
+                    ->info('Optional application-level provider allowlist. When set, data:scan-datasets only scans these provider directories.')
+                    ->scalarPrototype()->end()
+                    ->defaultValue([])
+                ->end()
                 ->scalarNode('tenant_database_prefix')->defaultValue('')->end()
                 ->arrayNode('tenants')
                     ->useAttributeAsKey('code')
@@ -72,7 +80,7 @@ final class SurvosDataBundle extends AbstractBundle
             ->args([
                 '$dataDir' => $config['data_dir'],
                 '$datasetRoot' => $config['dataset_root'],
-                '$pixieRoot' => $config['pixie_root'],
+                '$artifactRoot' => $config['artifact_root'],
                 '$runsRoot' => $config['runs_root'],
                 '$cacheRoot' => $config['cache_root'],
                 '$zipsRoot' => $config['zips_root'],
@@ -80,6 +88,11 @@ final class SurvosDataBundle extends AbstractBundle
             ]);
 
         $services->set(ProviderSnapshotCodec::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public();
+
+        $services->set(DatasetRegistryUpdater::class)
             ->autowire()
             ->autoconfigure()
             ->public();
@@ -118,12 +131,18 @@ final class SurvosDataBundle extends AbstractBundle
             $services->alias(DatasetContextInterface::class, DatasetContext::class)->public();
         }
 
-        foreach ([DataDiagCommand::class, DataPathCommand::class, DataHeadCommand::class, DataBrowseCommand::class, ScanDatasetsCommand::class, DatasetIterateCommand::class] as $class) {
+        foreach ([DataDiagCommand::class, DataPathCommand::class, DataPurgeCommand::class, DataHeadCommand::class, DataBrowseCommand::class, DatasetIterateCommand::class] as $class) {
             $services->set($class)
                 ->autowire()
                 ->autoconfigure()
                 ->public();
         }
+
+        $services->set(ScanDatasetsCommand::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public()
+            ->arg('$enabledProviders', $config['providers']);
 
         if (class_exists(\Survos\AiWorkflowBundle\Entity\Subject::class)) {
             $services->set(SubjectImportListener::class)
@@ -133,6 +152,12 @@ final class SurvosDataBundle extends AbstractBundle
         }
 
         $services->set(DatasetInfoRepository::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public()
+            ->tag('doctrine.repository_service');
+
+        $services->set(ArtifactRepository::class)
             ->autowire()
             ->autoconfigure()
             ->public()
@@ -160,9 +185,12 @@ final class SurvosDataBundle extends AbstractBundle
             ->autoconfigure()
             ->public();
 
-        $services->set('survos_data.api_resource.dataset_info', DatasetInfo::class)
-            ->abstract()
-            ->tag('api_platform.resource');
+        if (class_exists(\Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber::class)) {
+            $services->set(DataMenuSubscriber::class)
+                ->autowire()
+                ->autoconfigure()
+                ->public();
+        }
 
         $services->set(Tenant\TenantRegistry::class)
             ->autowire()
@@ -225,30 +253,6 @@ final class SurvosDataBundle extends AbstractBundle
     public function configureRoutes(RoutingConfigurator $routes): void
     {
         $routes->import(dirname(__DIR__) . '/src/Controller/', 'attribute');
-
-        if (!class_exists('ApiPlatform\\Action\\PlaceholderAction')) {
-            return;
-        }
-
-        $defaults = [
-            '_controller' => 'api_platform.action.placeholder',
-            '_stateless' => true,
-            '_api_resource_class' => DatasetInfo::class,
-        ];
-
-        $routes->add('_api_/dataset_infos_get_collection', '/api/dataset_infos')
-            ->methods(['GET'])
-            ->defaults($defaults + [
-                '_api_operation_name' => '_api_/dataset_infos_get_collection',
-                '_format' => null,
-            ]);
-
-        $routes->add('_api_/dataset_infos/{datasetKey}_get', '/api/dataset_infos/{datasetKey}')
-            ->methods(['GET'])
-            ->defaults($defaults + [
-                '_api_operation_name' => '_api_/dataset_infos/{datasetKey}_get',
-                '_format' => null,
-            ]);
     }
 
 }

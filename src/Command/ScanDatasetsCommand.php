@@ -4,8 +4,10 @@ declare(strict_types=1);
 namespace Survos\DataBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
+use Survos\DataBundle\Entity\Artifact;
 use Survos\DataBundle\Entity\DatasetInfo;
 use Survos\DataBundle\Entity\Provider;
+use Survos\DataBundle\Repository\ArtifactRepository;
 use Survos\DataBundle\Repository\DatasetInfoRepository;
 use Survos\DataBundle\Repository\ProviderRepository;
 use Survos\DataBundle\Service\DatasetPaths;
@@ -28,14 +30,17 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   bin/console data:scan-datasets --provider=dc --limit=10
  */
 #[AsCommand('data:scan-datasets',
-    'Scan APP_DATA_DIR for 00_meta/dataset.json + pixie DBs and populate DatasetInfo registry')]
+    'Scan APP_DATA_DIR for 00_meta/dataset.json + folio DBs and populate DatasetInfo registry')]
 final class ScanDatasetsCommand extends DataCommand
 {
+    /** @param list<string> $enabledProviders */
     public function __construct(
         private readonly EntityManagerInterface $em,
+        private readonly ArtifactRepository $artifactRepository,
         private readonly ProviderRepository $providerRepo,
         private readonly DatasetInfoRepository $datasetRepository,
         private readonly ProviderSnapshotCodec $providerSnapshotCodec,
+        private readonly array $enabledProviders = [],
     ) {}
 
     public function __invoke(
@@ -44,7 +49,9 @@ final class ScanDatasetsCommand extends DataCommand
         #[Option('Max datasets to process (0 = all)')] int $limit = 0,
         #[Option('Re-scan even if DatasetInfo already exists')] bool $force = false,
         #[Option('Only update status/counts, skip re-reading meta')] bool $statusOnly = false,
-        #[Option('Pixie DB directory (defaults to APP_DATA_DIR/pixie)')] ?string $pixieDir = null,
+        #[Option('Folio DB directory (defaults to APP_DATA_DIR/folio)')] ?string $folioDir = null,
+        #[Option('Open each folio SQLite and collect row counts + DTO class breakdown (--no-folio to skip)')] ?bool $folio = null,
+        #[Option('Delete existing DatasetInfo rows before scanning (scoped to --provider if given)')] bool $reset = false,
     ): int {
         $io->title('Scanning datasets → DatasetInfo registry');
 
@@ -52,13 +59,24 @@ final class ScanDatasetsCommand extends DataCommand
         $created = $updated = $skipped = 0;
         $count   = 0;
 
+        if ($reset) {
+            $this->em->createQueryBuilder()->delete(Artifact::class, 'a')
+                ->getQuery()->execute();
+            $deleted = $this->em->createQueryBuilder()->delete(DatasetInfo::class, 'd')
+                ->getQuery()->execute();
+            $this->em->flush();
+            $io->text(sprintf('Reset: deleted %d DatasetInfo row(s).', $deleted));
+        }
+
         // ── Provider preflight: all provider dirs must have provider.json + DB row ──
         $root = $this->dataPaths->workRoot;
         $providerDirs = $this->listProviderDirs($root, $provider);
+        if ($this->enabledProviders !== [] && $provider === null) {
+            $io->text(sprintf('Provider allowlist from survos_data.providers: %s', implode(', ', $this->normalizedEnabledProviders())));
+        }
 
         if ($providerDirs === []) {
             $io->warning(sprintf('No provider directories found in %s', $root));
-            return Command::SUCCESS;
         }
 
         $missingProviderJson = [];
@@ -179,39 +197,70 @@ final class ScanDatasetsCommand extends DataCommand
 
         $this->em->flush();
 
-        // ── Phase 2: Scan pixie DB directory — match to existing DatasetInfo ──
-        $pixiePath = $pixieDir ?? ($this->dataPaths->root . '/pixie');
-        $dbFiles   = glob($pixiePath . '/*.db') ?: [];
+        // ── Phase 2: Scan folio DB directory — upsert Artifact rows ──────────
+        $folioPath   = rtrim($folioDir ?? ($this->dataPaths->root . '/folio'), '/');
+        $folioFiles  = glob($folioPath . '/*/*.folio.sqlite') ?: [];
+        $allowedProviders = $provider !== null && $provider !== ''
+            ? [strtolower(trim($provider)) => true]
+            : array_fill_keys($this->normalizedEnabledProviders(), true);
 
-        $io->text(sprintf('Phase 2: Found %d pixie .db files in %s', count($dbFiles), $pixiePath));
+        $io->text(sprintf('Phase 2: Found %d folio .sqlite files in %s', count($folioFiles), $folioPath));
 
-        $pixieUpdated = 0;
-        foreach ($dbFiles as $dbFile) {
-            $pixieCode  = basename($dbFile, '.db');
-            // Convert pixie code back to dataset key: "fortepan_hu" → "fortepan/hu"
-            // Try both underscore splits to find a matching DatasetInfo
-            $datasetKey = $this->pixieCodeToDatasetKey($pixieCode, $repo);
-
-            if (!$datasetKey) {
-                // No matching meta — create a minimal DatasetInfo from the DB file
-                $datasetKey = str_replace('_', '/', $pixieCode);
-                $info = $repo->find($datasetKey) ?? new DatasetInfo($datasetKey);
-                if (!$repo->find($datasetKey)) {
-                    $this->em->persist($info);
-                }
-            } else {
-                $info = $repo->find($datasetKey);
-                if (!$info) {
-                    continue; // shouldn't happen
-                }
+        $folioUpdated = 0;
+        foreach ($folioFiles as $dbFile) {
+            // Path is provider/dataset.folio.sqlite — strip base dir and extension to get dataset key.
+            $relative   = substr($dbFile, strlen($folioPath) + 1);
+            $datasetKey = preg_replace('/\.folio\.sqlite$/', '', $relative);
+            $folioProviderCode = explode('/', $datasetKey, 2)[0] ?? '';
+            if ($allowedProviders !== [] && !isset($allowedProviders[$folioProviderCode])) {
+                continue;
             }
 
-            $info->pixieDbPath  = $dbFile;
-            $info->pixieDbSize  = (int) filesize($dbFile);
-            $pixieUpdated++;
+            $info = $repo->find($datasetKey);
+            if (!$info) {
+                $info = new DatasetInfo($datasetKey);
+                $info->aggregator = $info->provider();
+                $this->em->persist($info);
+            }
+
+            $providerCode = $info->provider();
+            $providerEntity = $providersByCode[$providerCode]
+                ?? $this->providerRepo->findOneByCode($providerCode)
+                ?? new Provider($providerCode);
+
+            if ($providerEntity->getCode() !== null) {
+                $providerEntity->setSyncedAt(new \DateTime());
+                $this->em->persist($providerEntity);
+                $providersByCode[$providerCode] = $providerEntity;
+                $info->setProviderEntity($providerEntity);
+            }
+
+            $folio ??= true;
+            $summary = $folio ? $this->summarizeFolio($dbFile) : ['rowCount' => null, 'cores' => [], 'coreCounts' => [], 'dtoCounts' => null];
+            $artifact = $this->artifactRepository->findOneBy([
+                'dataset' => $info,
+                'type' => Artifact::TYPE_FOLIO,
+                'code' => Artifact::CODE_DEFAULT,
+            ]) ?? new Artifact($info, Artifact::TYPE_FOLIO);
+
+            $artifact->uri = $dbFile;
+            $artifact->sizeBytes = is_file($dbFile) ? filesize($dbFile) : null;
+            $artifact->rowCount  = $summary['rowCount'];
+            $artifact->dtoCounts = $summary['dtoCounts'];
+            $artifact->updatedAt = is_file($dbFile) ? (new \DateTimeImmutable())->setTimestamp((int) filemtime($dbFile)) : null;
+            $artifact->discoveredAt = new \DateTimeImmutable();
+            $artifact->metadata = [
+                'relativePath' => $relative,
+                'cores'        => $summary['cores'],
+                'coreCounts'   => $summary['coreCounts'],
+            ];
+
+            $info->addArtifact($artifact);
+            $this->em->persist($artifact);
+            $folioUpdated++;
         }
 
-        if ($pixieUpdated > 0) {
+        if ($folioUpdated > 0) {
             $this->em->flush();
         }
 
@@ -235,28 +284,31 @@ final class ScanDatasetsCommand extends DataCommand
         $this->em->flush();
 
         $io->success(sprintf(
-            'Done — created: %d, updated: %d, skipped: %d, pixie DBs matched: %d',
-            $created, $updated, $skipped, $pixieUpdated
+            'Done — created: %d, updated: %d, skipped: %d, folio DBs matched: %d',
+            $created, $updated, $skipped, $folioUpdated
         ));
 
         $io->section('Provider dataset counts');
         $io->table(['Provider', 'Dataset count'], $providerCountRows);
 
-        // Show what has pixie DBs
+        // Show what has folio DBs
         $withDb = $repo->createQueryBuilder('d')
-            ->where('d.pixieDbPath IS NOT NULL')
+            ->join('d.artifacts', 'a')
+            ->where('a.type = :type')
+            ->setParameter('type', Artifact::TYPE_FOLIO)
             ->orderBy('d.aggregator')->addOrderBy('d.datasetKey')
             ->getQuery()->getResult();
 
         if ($withDb) {
-            $io->section('Datasets with pixie DB (ready to browse)');
+            $io->section('Datasets with folio DB (ready to browse)');
             $rows = [];
             foreach ($withDb as $info) {
+                $artifact = $info->primaryArtifact(Artifact::TYPE_FOLIO);
                 $rows[] = [
                     $info->datasetKey,
                     $info->label ?? '-',
-                    $info->pixieRowCount ? number_format($info->pixieRowCount) : '?',
-                    round($info->pixieDbSize??0 / 1024) . ' KB',
+                    $artifact?->rowCount ? number_format($artifact->rowCount) : '?',
+                    round(($artifact?->sizeBytes ?? 0) / 1024) . ' KB',
                     $info->status,
                 ];
             }
@@ -274,6 +326,12 @@ final class ScanDatasetsCommand extends DataCommand
         }
 
         $providerFilter = $providerFilter !== null ? strtolower(trim($providerFilter)) : null;
+        $allowedProviders = $this->normalizedEnabledProviders();
+
+        if ($providerFilter !== null && $providerFilter !== '' && $allowedProviders !== [] && !in_array($providerFilter, $allowedProviders, true)) {
+            return [];
+        }
+
         $providerDirs = [];
 
         foreach (new \DirectoryIterator($root) as $entry) {
@@ -282,6 +340,10 @@ final class ScanDatasetsCommand extends DataCommand
             }
 
             $providerCode = strtolower($entry->getFilename());
+            if ($allowedProviders !== [] && !in_array($providerCode, $allowedProviders, true)) {
+                continue;
+            }
+
             if ($providerFilter !== null && $providerFilter !== '' && $providerCode !== $providerFilter) {
                 continue;
             }
@@ -292,6 +354,22 @@ final class ScanDatasetsCommand extends DataCommand
         ksort($providerDirs);
 
         return $providerDirs;
+    }
+
+    /** @return list<string> */
+    private function normalizedEnabledProviders(): array
+    {
+        $providers = [];
+        foreach ($this->enabledProviders as $provider) {
+            $provider = strtolower(trim((string) $provider));
+            if ($provider !== '') {
+                $providers[$provider] = $provider;
+            }
+        }
+
+        ksort($providers);
+
+        return array_values($providers);
     }
 
     /** @return array<string,mixed> */
@@ -308,19 +386,6 @@ final class ScanDatasetsCommand extends DataCommand
         return $meta;
     }
 
-    private function pixieCodeToDatasetKey(string $pixieCode, DatasetInfoRepository $repo): ?string
-    {
-        // Try progressively: "fortepan_hu" → "fortepan/hu", "dc_0v83gg01j" → "dc/0v83gg01j"
-        $pos = strpos($pixieCode, '_');
-        while ($pos !== false) {
-            $candidate = substr($pixieCode, 0, $pos) . '/' . substr($pixieCode, $pos + 1);
-            if ($repo->find($candidate)) {
-                return $candidate;
-            }
-            $pos = strpos($pixieCode, '_', $pos + 1);
-        }
-        return null;
-    }
 
     private function populateFromMeta(DatasetInfo $info, array $meta, string $metaFile): void
     {
@@ -438,7 +503,7 @@ final class ScanDatasetsCommand extends DataCommand
     {
         $info->status = match (true) {
             $info->meiliDocCount > 0    => 'indexed',
-            $info->pixieRowCount > 0    => 'pixie',
+            $info->hasArtifact(Artifact::TYPE_FOLIO) => 'folio',
             $info->hasProfile()         => 'profiled',
             $info->hasNormalized()      => 'normalized',
             $info->hasRaw()             => 'raw',
@@ -470,5 +535,53 @@ final class ScanDatasetsCommand extends DataCommand
         }
 
         return $count;
+    }
+
+    /**
+     * @return array{rowCount:int|null, cores:list<array{code:string,label:?string,rowCount:int}>}
+     */
+    private function summarizeFolio(string $dbFile): array
+    {
+        $empty = ['rowCount' => null, 'cores' => [], 'coreCounts' => [], 'dtoCounts' => null];
+        if (!is_file($dbFile)) {
+            return $empty;
+        }
+
+        try {
+            $pdo      = new \PDO('sqlite:' . $dbFile);
+            $rowCount = (int) $pdo->query('SELECT COUNT(*) FROM item')->fetchColumn();
+
+            $cores = $pdo->query('SELECT code, label, row_count AS rowCount FROM core ORDER BY code')
+                ->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Counts by core code.
+            $coreCounts = [];
+            foreach ($cores as $core) {
+                $coreCounts[(string) $core['code']] = (int) $core['rowCount'];
+            }
+
+            // Counts by DTO type, sorted descending.
+            $dtoRows = $pdo->query(
+                'SELECT dto_type, COUNT(*) AS cnt FROM item WHERE dto_type IS NOT NULL GROUP BY dto_type ORDER BY cnt DESC'
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $dtoCounts = [];
+            foreach ($dtoRows as $row) {
+                $dtoCounts[(string) $row['dto_type']] = (int) $row['cnt'];
+            }
+
+            return [
+                'rowCount'   => $rowCount,
+                'cores'      => array_map(static fn(array $r): array => [
+                    'code'     => (string) $r['code'],
+                    'label'    => $r['label'] !== null ? (string) $r['label'] : null,
+                    'rowCount' => (int) $r['rowCount'],
+                ], $cores ?: []),
+                'coreCounts' => $coreCounts,
+                'dtoCounts'  => $dtoCounts ?: null,
+            ];
+        } catch (\Throwable) {
+            return $empty;
+        }
     }
 }

@@ -20,9 +20,9 @@ final class ProviderListComponent
     public function __construct(
         private readonly ProviderRepository $providerRepository,
         private readonly CandidateRepository $candidateRepository,
-        private readonly MeiliService $meiliService,
-        private readonly IndexInfoRepository $indexInfoRepository,
         private readonly RouterInterface $router,
+        private readonly ?MeiliService $meiliService = null,
+        private readonly ?IndexInfoRepository $indexInfoRepository = null,
     ) {
     }
 
@@ -37,8 +37,8 @@ final class ProviderListComponent
 
             // Get Meilisearch indexes for this provider by matching indexName prefix
             // e.g., md_dc, md_dccoll, md_smithobj all belong to provider "dc" or "smith"
-            $allIndexes = $this->indexInfoRepository->findAll();
-            $indexInfos = array_filter($allIndexes, fn($idx) => 
+            $allIndexes = $this->indexInfoRepository?->findAll() ?? [];
+            $indexInfos = array_filter($allIndexes, fn($idx) =>
                 str_starts_with($idx->indexName, 'md_' . $code) ||
                 $idx->indexName === 'md_' . $code
             );
@@ -56,6 +56,7 @@ final class ProviderListComponent
                 'indexInfos' => array_values($indexInfos),
                 'apiUrl' => $apiUrl,
                 'showUrl' => $this->router->generate('data_bundle_provider_show', ['provider' => $code]),
+                'datasets' => $provider->getDatasets(),
             ];
         }
 

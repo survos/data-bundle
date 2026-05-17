@@ -9,23 +9,21 @@ use ApiPlatform\Metadata\ApiFilter;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Survos\DataBundle\Repository\DatasetInfoRepository;
+use Survos\FieldBundle\Attribute\EntityMeta;
 use Symfony\Component\Serializer\Attribute\Groups;
 
 /**
  * Registry of all known datasets — populated once by scanning 00_meta/dataset.yaml
  * files, then used for all subsequent lookups without touching the filesystem.
  *
- * Replaces:
- *   - Directory scanning in PixieService::getConfigFiles()
- *   - YAML-based pixie registry
- *   - Repeated Yaml::parseFile() calls at runtime
- *
  * Populate with: bin/console data:scan-datasets
- * Then all pixie:migrate, pixie:ingest, meili:push operations use this registry.
  */
+#[EntityMeta(icon: 'mdi:database-outline', group: 'Data', label: 'Datasets')]
 #[ORM\Entity(repositoryClass: DatasetInfoRepository::class)]
 #[ORM\Index(columns: ['aggregator'])]
 #[ORM\Index(columns: ['locale'])]
@@ -64,6 +62,11 @@ final class DatasetInfo
     #[ORM\JoinColumn(name: 'provider_code', referencedColumnName: 'code', nullable: true, onDelete: 'SET NULL')]
     public ?Provider $providerEntity = null;
 
+    /** @var Collection<int, Artifact> */
+    #[ORM\OneToMany(mappedBy: 'dataset', targetEntity: Artifact::class, cascade: ['persist', 'remove'], orphanRemoval: true)]
+    #[Groups(['dataset:read'])]
+    public Collection $artifacts;
+
     #[ORM\Column(nullable: true)]
     #[Groups(['dataset:read'])]
     public ?string $locale = null;        // default locale: en | de | hu | etc.
@@ -98,12 +101,9 @@ final class DatasetInfo
     #[ORM\Column(nullable: true)]
     public ?string $profilePath = null;   // 21_profile/obj.profile.json
 
-    #[ORM\Column(nullable: true)]
-    public ?string $pixieDbPath = null;   // pixie/<code>.db SQLite file
-
     // ── Pipeline status ───────────────────────────────────────────────────────
 
-    /** One of: discovered | raw | normalized | profiled | pixie | indexed */
+    /** One of: discovered | raw | normalized | profiled | folio | indexed */
     #[ORM\Column(length: 32)]
     #[Groups(['dataset:read'])]
     public string $status = 'discovered';
@@ -111,10 +111,6 @@ final class DatasetInfo
     #[ORM\Column(nullable: true)]
     #[Groups(['dataset:read'])]
     public ?int $normalizedCount = null;   // from profile recordCount
-
-    #[ORM\Column(nullable: true)]
-    #[Groups(['dataset:read'])]
-    public ?int $pixieRowCount = null;     // rows in pixie db after ingest
 
     #[ORM\Column(nullable: true)]
     #[Groups(['dataset:read'])]
@@ -137,8 +133,6 @@ final class DatasetInfo
     /**
      * Core names available for this dataset (e.g. ["obj"] or ["obj", "cat", "type"]).
      * Populated by data:scan-datasets from profile files.
-     * Used by pixie:migrate to create Core rows without filesystem access.
-     *
      * @var string[]
      */
     #[ORM\Column(type: Types::JSON)]
@@ -163,7 +157,6 @@ final class DatasetInfo
 
     /**
      * Meilisearch settings derived from heuristic + field_map.
-     * Cached here so pixie:index and meili:push don't need to re-derive.
      * e.g. {"filterable": ["year","country","city"], "searchable": ["title","tags"]}
      *
      * @var array<string, mixed>
@@ -183,6 +176,7 @@ final class DatasetInfo
     public function __construct(string $datasetKey)
     {
         $this->datasetKey = $datasetKey;
+        $this->artifacts = new ArrayCollection();
     }
 
     // ── Derived helpers ───────────────────────────────────────────────────────
@@ -209,16 +203,63 @@ final class DatasetInfo
         return $this->code();
     }
 
-    /** The pixie code used for the SQLite filename: "fortepan/hu" → "fortepan_hu" */
-    public function pixieCode(): string
-    {
-        return str_replace('/', '_', $this->datasetKey);
-    }
-
     public function hasRaw(): bool        { return $this->rawPath !== null && is_file($this->rawPath); }
     public function hasNormalized(): bool { return $this->normalizedPath !== null && is_file($this->normalizedPath); }
     public function hasProfile(): bool    { return $this->profilePath !== null && is_file($this->profilePath); }
-    public function hasPixieDb(): bool    { return $this->pixieDbPath !== null && is_file($this->pixieDbPath); }
+
+    public ?string $folioPath {
+        get => $this->primaryArtifact(Artifact::TYPE_FOLIO)?->uri;
+    }
+    public ?int $folioSize {
+        get => $this->primaryArtifact(Artifact::TYPE_FOLIO)?->sizeBytes;
+    }
+    public ?int $folioRowCount {
+        get => $this->primaryArtifact(Artifact::TYPE_FOLIO)?->rowCount;
+    }
+    public bool $hasFolio {
+        get {
+            $path = $this->primaryArtifact(Artifact::TYPE_FOLIO)?->uri;
+            return $path !== null && is_file($path);
+        }
+    }
+    public ?int $liveSize {
+        get {
+            $path = $this->primaryArtifact(Artifact::TYPE_FOLIO)?->uri;
+            return $path !== null && is_file($path) ? filesize($path) : null;
+        }
+    }
+
+    public function primaryArtifact(string $type): ?Artifact
+    {
+        foreach ($this->artifacts as $artifact) {
+            if ($artifact->type === $type && $artifact->code === Artifact::CODE_DEFAULT) {
+                return $artifact;
+            }
+        }
+
+        foreach ($this->artifacts as $artifact) {
+            if ($artifact->type === $type) {
+                return $artifact;
+            }
+        }
+
+        return null;
+    }
+
+    public function hasArtifact(string $type): bool
+    {
+        return $this->primaryArtifact($type) !== null;
+    }
+
+    public function addArtifact(Artifact $artifact): self
+    {
+        if (!$this->artifacts->contains($artifact)) {
+            $this->artifacts->add($artifact);
+            $artifact->dataset = $this;
+        }
+
+        return $this;
+    }
 
     public function getProviderEntity(): ?Provider
     {
@@ -230,11 +271,6 @@ final class DatasetInfo
         $this->providerEntity = $provider;
 
         return $this;
-    }
-
-    public function isReadyForPixie(): bool
-    {
-        return $this->hasNormalized() && $this->hasProfile();
     }
 
     public function isReadyForMeili(): bool

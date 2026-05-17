@@ -24,7 +24,7 @@ use function trim;
  *       20_normalize/
  *       21_profile/
  *       30_terms/
- *     pixie/...
+ *     artifacts/...
  *     runs/...
  *     cache/...
  */
@@ -111,7 +111,7 @@ final class DataPaths
         public private(set) string $dataDir,
         public private(set) string $worksRoot = 'work',
         public private(set) string $datasetRoot = 'work', // renamed, 4/3
-        public private(set) string $pixieRoot = 'pixie',
+        public private(set) string $artifactRoot = 'artifacts',
         public private(set) string $runsRoot = 'runs',
         public private(set) string $cacheRoot = 'cache',
         public private(set) string $zipsRoot = 'zips',
@@ -140,7 +140,7 @@ final class DataPaths
 
     public string $datasetsRoot { get => "{$this->root}/{$this->datasetRoot}"; }
     public string $workRoot { get => "{$this->root}/{$this->worksRoot}"; }
-    public string $pixieRootDir { get => "{$this->root}/{$this->pixieRoot}"; }
+    public string $artifactRootDir { get => "{$this->root}/{$this->artifactRoot}"; }
     public string $runsRootDir { get => "{$this->root}/{$this->runsRoot}"; }
     public string $cacheRootDir { get => "{$this->root}/{$this->cacheRoot}"; }
     public string $zipsRootDir {

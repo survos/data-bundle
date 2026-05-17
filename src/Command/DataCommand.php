@@ -13,8 +13,7 @@ use Symfony\Contracts\Service\Attribute\Required;
  * automatically after construction — no need to declare DataPaths
  * in every command's constructor.
  *
- * All pixie, md, mus, ssai, zm commands that need APP_DATA_DIR
- * paths should extend this.
+ * Commands that need APP_DATA_DIR paths should extend this.
  */
 abstract class DataCommand
 {

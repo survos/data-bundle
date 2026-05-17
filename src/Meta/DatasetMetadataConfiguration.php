@@ -70,7 +70,7 @@ final class DatasetMetadataConfiguration implements ConfigurationInterface
                     ->end()
                 ->end()
 
-                // locale hints for pixie/babel
+                // locale hints for translation/indexing
                 ->arrayNode('locale')
                     ->addDefaultsIfNotSet()
                     ->children()
