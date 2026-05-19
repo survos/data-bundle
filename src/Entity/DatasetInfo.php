@@ -144,7 +144,7 @@ final class DatasetInfo
      *
      * @var array<string, string[]>
      */
-    #[ORM\Column(type: Types::JSON, options: ['jsonb' => true])]
+    #[ORM\Column(type: Types::JSONB)]
     public array $fields = [];
 
     /**
@@ -152,7 +152,7 @@ final class DatasetInfo
      *
      * @var array<string, mixed>
      */
-    #[ORM\Column(type: Types::JSON, nullable: true, options: ['jsonb' => true])]
+    #[ORM\Column(type: Types::JSONB, nullable: true)]
     public ?array $profileSummary = null;
 
     /**
@@ -161,7 +161,7 @@ final class DatasetInfo
      *
      * @var array<string, mixed>
      */
-    #[ORM\Column(type: Types::JSON, options: ['jsonb' => true])]
+    #[ORM\Column(type: Types::JSONB)]
     public array $meiliSettings = [];
 
     /**
@@ -170,7 +170,7 @@ final class DatasetInfo
      *
      * @var array<string, mixed>
      */
-    #[ORM\Column(type: Types::JSON, options: ['jsonb' => true])]
+    #[ORM\Column(type: Types::JSONB)]
     public array $meta = [];
 
     public function __construct(string $datasetKey)

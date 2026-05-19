@@ -102,7 +102,7 @@ class Artifact
     public ?array $dtoCounts = null;
 
     /** @var array<string, mixed> */
-    #[ORM\Column(type: Types::JSON, options: ['jsonb' => true])]
+    #[ORM\Column(type: Types::JSONB)]
     #[Groups(['artifact:read', 'dataset:read'])]
     public array $metadata = [];
 

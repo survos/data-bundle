@@ -107,7 +107,7 @@ final class Candidate
     public string $status = 'discovered';
 
     /** @var array<string,mixed> */
-    #[ORM\Column(type: Types::JSON, options: ['jsonb' => true])]
+    #[ORM\Column(type: Types::JSONB)]
     #[Groups(['candidate:read', 'candidate:write'])]
     public array $meta = [];
 
