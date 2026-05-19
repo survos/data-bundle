@@ -6,7 +6,7 @@ namespace Survos\DataBundle\Repository;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 use Survos\FieldBundle\Repository\QueryBuilderHelperInterface;
-use Survos\CoreBundle\Traits\QueryBuilderHelperTrait;
+use Survos\FieldBundle\Repository\QueryBuilderHelperTrait;
 use Survos\DataBundle\Entity\DatasetInfo;
 
 /**
