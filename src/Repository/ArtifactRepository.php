@@ -5,7 +5,7 @@ namespace Survos\DataBundle\Repository;
 
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
-use Survos\CoreBundle\Traits\QueryBuilderHelperInterface;
+use Survos\FieldBundle\Repository\QueryBuilderHelperInterface;
 use Survos\CoreBundle\Traits\QueryBuilderHelperTrait;
 use Survos\DataBundle\Entity\Artifact;
 
