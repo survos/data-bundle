@@ -1,41 +1,27 @@
 {
     "name": "survos/data-bundle",
-    "description": "Shared data directory conventions and path utilities for dataset-driven apps (APP_DATA_DIR).",
+    "description": "Database and tooling layer for survos/data-contracts: keyword→ContentType classification cache (VocabMap) and ContentType display-label translations (VocabLabel).",
     "type": "symfony-bundle",
     "license": "MIT",
+    "keywords": ["symfony", "vocabulary", "classification", "contenttype", "facets"],
     "autoload": {
         "psr-4": {
-        "Survos\\DataBundle\\": "src/"
-        }
-    },
-    "autoload-dev": {
-        "psr-4": {
-        "Survos\\DataBundle\\Tests\\": "tests/"
+            "Survos\\DataBundle\\": "src/"
         }
     },
     "require": {
         "php": "^8.4",
-        "doctrine/dbal": "^4.2",
+        "doctrine/orm": "^3.6",
+        "doctrine/doctrine-bundle": "^3.2",
+        "doctrine/dbal": "^3.9||^4.2",
+        "survos/data-contracts": "^2.0",
+        "survos/field-bundle": "^2.1",
+        "survos/dataset-bundle": "^2.1",
+        "survos/import-bundle": "^2.1",
+        "survos/kit-bundle": "^2.1",
         "symfony/framework-bundle": "^8.0",
-        "symfony/dependency-injection": "^8.0",
-        "symfony/config": "^8.0",
-        "symfony/serializer": "^8.0",
-        "symfony/filesystem": "^8.0",
-        "symfony/console": "^8.0",
-        "symfony/ux-twig-component": "^2.0|^3.0"
+        "symfony/console": "^8.0"
     },
-    "require-dev": {
-        "roave/security-advisories": "dev-latest",
-        "phpunit/phpunit": "^13.0",
-        "symfony/yaml": "^8.0",
-        "survos/import-bundle": "^2.0",
-        "survos/ai-workflow-bundle": "^2.0"
-    },
-    "suggest": {
-        "survos/ai-workflow-bundle": "Wires DatasetIterateRowEvent → Subject creation for AI workflow pipelines"
-    },
-    "prefer-stable": true,
-    "minimum-stability": "beta",
     "extra": {
         "symfony": {
             "require": "^8.1"

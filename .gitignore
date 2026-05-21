@@ -1,6 +1,19 @@
-/vendor/
+###> symfony/framework-bundle ###
+.idea
+/.env.live
+/.env.local
+/.env.*.local
 composer.lock
-/tests/cache
-/tests/project-dir
-# coverage
-/html
+/docker/.env
+/docker/.env.app
+/docker/.env.local
+/public/bundles/
+/var/
+/vendor/
+/config/secrets/prod/prod.sodium.decrypt.private
+###< symfony/framework-bundle ###
+
+###> symfony/phpunit-bridge ###
+.phpunit
+/phpunit.xml
+###< symfony/phpunit-bridge ###
