@@ -45,7 +45,13 @@ final class VocabTermExtractorListener
 
     public function __invoke(ImportConvertFinishedEvent $event): void
     {
-        if (!is_file($event->jsonlPath)) {
+        // Use the canonical normalize stage file — some listeners (e.g. EuroSetRecordListener)
+        // write directly to 20_normalize/ rather than through the pipeline's output path,
+        // so $event->jsonlPath may point to an empty file.
+        $jsonlPath = $this->dataPaths->stageDir($event->dataset, 'normalize')
+            . '/' . basename($event->jsonlPath);
+
+        if (!is_file($jsonlPath) || filesize($jsonlPath) === 0) {
             return;
         }
 
@@ -53,7 +59,7 @@ final class VocabTermExtractorListener
         /** @var array<string, array{lang: string, term: string, normTerm: string, count: int}> */
         $inventory = [];
 
-        $fh = fopen($event->jsonlPath, 'r');
+        $fh = fopen($jsonlPath, 'r');
         if (false === $fh) {
             return;
         }
