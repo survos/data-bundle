@@ -4,37 +4,55 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle\EventListener;
 
-use Survos\DataBundle\Service\DataPaths;
+use Survos\DatasetBundle\Service\DataPaths;
 use Survos\DataContracts\Vocabulary\ItemField;
+use Survos\DataContracts\Vocabulary\MuseumVocab;
 use Survos\ImportBundle\Event\ImportConvertFinishedEvent;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Filesystem\Filesystem;
 
 /**
  * After normalization completes, scan the output JSONL and extract a
- * deduplicated inventory of genre/subject terms per language.
+ * deduplicated vocabulary inventory split by type and language.
  *
- * Output: 30_terms/vocab.jsonl — one row per unique (lang, term):
- *   {"lang":"fra","term":"photographie","normTerm":"photographie","count":1523}
+ * Output layout in 30_terms/:
+ *   genre.en.jsonl    ← {"term":"Painting","normTerm":"painting","count":87}
+ *   medium.en.jsonl   ← {"term":"oil on canvas","normTerm":"oil on canvas","count":12}
+ *   place.fr.jsonl    ← {"term":"Paris","normTerm":"paris","count":45}
+ *   person.fr.jsonl
+ *   subject.en.jsonl
  *
- * This file is consumed by the vocab:map command (diff against the shared
- * vocab/{lang}/dto_map.jsonl, dispatch AI for misses, then used in enrich).
+ * Type and language are encoded in the filename — rows carry only term data.
+ * termType=genre files feed the vocab:map AI classifier.
+ * All files feed folio:ingest as TermSet+Term rows.
+ *
+ * A term whose normTerm matches a Row.id in another folio core is a candidate
+ * Relation edge rather than a plain Term — folio:ingest resolves this later.
  */
 #[AsEventListener(event: ImportConvertFinishedEvent::class)]
 final class VocabTermExtractorListener
 {
-    /** Fields that may contain genre/subject vocabulary terms. */
+    /**
+     * termType → [normalized field keys that contribute to it].
+     *
+     * termType is either 'genre' (ContentType-classifiable) or a MuseumVocab code.
+     * Field keys MUST be ItemField or MuseumVocab constants — never plain strings.
+     *
+     * Grouping rules:
+     *   tec + mat → med  (technique and material are sub-types of medium)
+     *   dept      → org  (department is part of organisation)
+     *   keywords + subject (ItemField) → obj  (MuseumVocab subject code)
+     *   creator (ItemField) → per
+     */
     private const TERM_FIELDS = [
-        ItemField::GENRE_SPECIFIC,
-        ItemField::GENRE_BASIC,
-        ItemField::TYPE,
-        'subject',
-        'subjects',
-        'keywords',
-        'classification',
-        'object_type',
-        'objectType',
-        'category',
+        'genre'                   => [ItemField::GENRE_SPECIFIC, ItemField::GENRE_BASIC, ItemField::TYPE],
+        MuseumVocab::MEDIUM       => [MuseumVocab::MEDIUM, MuseumVocab::TECHNIQUE, MuseumVocab::MATERIAL],
+        MuseumVocab::CULTURE      => [MuseumVocab::CULTURE],
+        MuseumVocab::PLACE        => [MuseumVocab::PLACE],
+        MuseumVocab::SUBJECT      => [MuseumVocab::SUBJECT, ItemField::KEYWORDS],
+        MuseumVocab::PERSON       => [MuseumVocab::PERSON, ItemField::CREATOR],
+        MuseumVocab::ORGANISATION => [MuseumVocab::ORGANISATION, MuseumVocab::DEPARTMENT],
+        MuseumVocab::PERIOD       => [MuseumVocab::PERIOD],
     ];
 
     public function __construct(
@@ -46,8 +64,7 @@ final class VocabTermExtractorListener
     public function __invoke(ImportConvertFinishedEvent $event): void
     {
         // Use the canonical normalize stage file — some listeners (e.g. EuroSetRecordListener)
-        // write directly to 20_normalize/ rather than through the pipeline's output path,
-        // so $event->jsonlPath may point to an empty file.
+        // write directly to 20_normalize/ bypassing the pipeline's output path.
         $jsonlPath = $this->dataPaths->stageDir($event->dataset, 'normalize')
             . '/' . basename($event->jsonlPath);
 
@@ -55,9 +72,9 @@ final class VocabTermExtractorListener
             return;
         }
 
-        // Collect (lang, normTerm) → {term, count}
-        /** @var array<string, array{lang: string, term: string, normTerm: string, count: int}> */
-        $inventory = [];
+        // Collect [termType][lang][normTerm] → {term, normTerm, count}
+        /** @var array<string, array<string, array<string, array{term: string, normTerm: string, count: int}>>> */
+        $buckets = [];
 
         $fh = fopen($jsonlPath, 'r');
         if (false === $fh) {
@@ -73,19 +90,15 @@ final class VocabTermExtractorListener
 
                 $lang = $this->extractLang($row);
 
-                foreach (self::TERM_FIELDS as $field) {
-                    foreach ((array) ($row[$field] ?? []) as $term) {
-                        $term = trim((string) $term);
-                        if ('' === $term) {
-                            continue;
+                foreach (self::TERM_FIELDS as $termType => $fields) {
+                    foreach ($fields as $field) {
+                        foreach ($this->scalars($row[$field] ?? null) as $term) {
+                            $norm = mb_strtolower($term);
+                            if (!isset($buckets[$termType][$lang][$norm])) {
+                                $buckets[$termType][$lang][$norm] = ['term' => $term, 'normTerm' => $norm, 'count' => 0];
+                            }
+                            ++$buckets[$termType][$lang][$norm]['count'];
                         }
-                        $norm = mb_strtolower($term);
-                        $key  = $lang . ':' . $norm;
-
-                        if (!isset($inventory[$key])) {
-                            $inventory[$key] = ['lang' => $lang, 'term' => $term, 'normTerm' => $norm, 'count' => 0];
-                        }
-                        ++$inventory[$key]['count'];
                     }
                 }
             }
@@ -93,29 +106,67 @@ final class VocabTermExtractorListener
             fclose($fh);
         }
 
-        if (!$inventory) {
+        if (!$buckets) {
             return;
         }
 
-        // Sort by lang, then count desc for readability
-        uasort($inventory, fn ($a, $b) => $a['lang'] <=> $b['lang'] ?: $b['count'] <=> $a['count']);
-
         $termsDir = $this->dataPaths->stageDir($event->dataset, 'terms', create: true);
-        $out = $termsDir . '/vocab.jsonl';
 
-        $this->fs->dumpFile(
-            $out,
-            implode("\n", array_map(
-                fn ($row) => json_encode($row, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES),
-                array_values($inventory),
-            )) . "\n",
-        );
+        // Clear stale term files before writing fresh ones
+        foreach (glob("{$termsDir}/*.jsonl") ?: [] as $stale) {
+            $this->fs->remove($stale);
+        }
+
+        foreach ($buckets as $termType => $langs) {
+            foreach ($langs as $lang => $terms) {
+                // sort by count desc
+                uasort($terms, fn ($a, $b) => $b['count'] <=> $a['count']);
+
+                $file = "{$termsDir}/{$termType}.{$lang}.jsonl";
+                $this->fs->dumpFile(
+                    $file,
+                    implode("\n", array_map(
+                        fn ($r) => json_encode($r, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES),
+                        array_values($terms),
+                    )) . "\n",
+                );
+            }
+        }
+    }
+
+    /**
+     * Extract scalar string values from a field that may be a string, a list,
+     * or a list of objects (probes title/label/name/value keys).
+     *
+     * @return list<string>
+     */
+    private function scalars(mixed $value): array
+    {
+        $out = [];
+        foreach ((array) $value as $v) {
+            if (\is_string($v)) {
+                $s = trim($v);
+                if ('' !== $s) {
+                    $out[] = $s;
+                }
+            } elseif (\is_array($v)) {
+                foreach (['title', 'label', 'name', 'value'] as $key) {
+                    if (isset($v[$key]) && \is_string($v[$key])) {
+                        $s = trim($v[$key]);
+                        if ('' !== $s) {
+                            $out[] = $s;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $out;
     }
 
     private function extractLang(array $row): string
     {
-        $lang = $row[ItemField::LANGUAGE] ?? $row['lang'] ?? $row['language'] ?? 'und';
-        // Normalise to ISO 639-3 3-letter code where possible; keep as-is otherwise.
-        return strtolower(trim((string) $lang)) ?: 'und';
+        return $row[ItemField::LANGUAGE] ?? 'und';
     }
 }
