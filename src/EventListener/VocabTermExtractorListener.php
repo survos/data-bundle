@@ -167,6 +167,6 @@ final class VocabTermExtractorListener
 
     private function extractLang(array $row): string
     {
-        return $row[ItemField::LANGUAGE] ?? 'und';
+        return (string) ($row[ItemField::LANGUAGE] ?? 'und');
     }
 }
