@@ -1,5 +1,14 @@
 # Survos DataBundle
 
+> ⚠️ **NOT** `survos/dataset-bundle` (note the extra `set`). Different package, different namespace.
+>
+> | Package | Namespace | Bundle class | Purpose |
+> |---|---|---|---|
+> | `survos/data-bundle` (this) | `Survos\DataBundle` | `SurvosDataBundle` | Vocab/ContentType DB tooling |
+> | `survos/dataset-bundle` | `Survos\DatasetBundle` | `SurvosDatasetBundle` | Dataset filesystem conventions (`APP_DATA_DIR`) |
+>
+> Both bundles can be installed side-by-side. Don't merge their namespaces in `composer.json` autoload — it silently masks classes from the other.
+
 Database and tooling layer for [`survos/data-contracts`](../../../lib/data-contracts).
 
 Bridges the contract layer (ContentType constants, item DTOs) to the file-based

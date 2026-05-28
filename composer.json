@@ -1,6 +1,6 @@
 {
     "name": "survos/data-bundle",
-    "description": "Database and tooling layer for survos/data-contracts: keyword→ContentType classification cache (VocabMap) and ContentType display-label translations (VocabLabel).",
+    "description": "NOT survos/dataset-bundle. Namespace: Survos\\DataBundle (no 'set'). Database and tooling layer for survos/data-contracts: keyword→ContentType classification cache (VocabMap) and ContentType display-label translations (VocabLabel).",
     "type": "symfony-bundle",
     "license": "MIT",
     "keywords": ["symfony", "vocabulary", "classification", "contenttype", "facets"],
