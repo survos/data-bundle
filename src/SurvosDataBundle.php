@@ -23,8 +23,13 @@ final class SurvosDataBundle extends AbstractSurvosBundle
                 ->autoconfigure();
 
         foreach (['EventListener', 'Service'] as $dir) {
-            if (is_dir($srcDir . $dir)) {
-                $services->load($ns . $dir . '\\', $srcDir . $dir . '/');
+            if (!is_dir($srcDir . $dir)) {
+                continue;
+            }
+
+            $definition = $services->load($ns . $dir . '\\', $srcDir . $dir . '/');
+            if ('EventListener' === $dir && !class_exists('Survos\\DatasetBundle\\Service\\DataPaths')) {
+                $definition->exclude($srcDir . 'EventListener/VocabTermExtractorListener.php');
             }
         }
 

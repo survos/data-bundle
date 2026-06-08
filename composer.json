@@ -16,7 +16,6 @@
         "doctrine/dbal": "^3.9||^4.2",
         "survos/data-contracts": "^2.5",
         "survos/field-bundle": "^2.5",
-        "survos/dataset-bundle": "^2.5",
         "survos/import-bundle": "^2.5",
         "survos/kit-bundle": "^2.5",
         "symfony/framework-bundle": "^8.0",
