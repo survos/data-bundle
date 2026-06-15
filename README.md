@@ -100,3 +100,30 @@ File locations are resolved via `DataPaths` (now in `survos/dataset-bundle`):
 | Path | Purpose |
 |---|---|
 | `{dataset}/30_terms/{termType}.{lang}.jsonl` | Per-dataset extracted term inventory (live) |
+
+## Note for future schema/type work
+
+Symfony **8.1** `TypeInfo` now supports **object shapes**. This may be useful when we need
+to describe folio/archive custom payloads with a compact, typed PHPDoc contract before (or
+instead of) introducing a full formal schema layer.
+
+Reference syntax:
+
+```php
+use Symfony\Component\TypeInfo\TypeResolver\StringTypeResolver;
+
+$resolver = new StringTypeResolver();
+$type = $resolver->resolve('object{name: string, age: int, email?: string}');
+```
+
+Equivalent programmatic form:
+
+```php
+use Symfony\Component\TypeInfo\Type;
+
+$type = Type::objectShape([
+    'name' => Type::string(),
+    'age' => Type::int(),
+    'email' => ['type' => Type::string(), 'optional' => true],
+]);
+```
