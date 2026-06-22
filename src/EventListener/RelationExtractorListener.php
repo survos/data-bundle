@@ -44,7 +44,7 @@ final class RelationExtractorListener
         // The item core being scanned (e.g. obj) is the OBJECT side of every edge.
         $itemCore = basename($jsonlPath, '.jsonl');
 
-        $collector = new RelationCollector();
+        $collector = new RelationCollector($normalizeDir);
         $fh = fopen($jsonlPath, 'r');
         if ($fh === false) {
             return;
@@ -74,9 +74,9 @@ final class RelationExtractorListener
             fclose($fh);
         }
 
-        if (!$collector->isEmpty()) {
-            $collector->write($normalizeDir, $this->fs);
-        }
+        // link.jsonl was streamed during the scan; finalize closes it and writes the entity cores +
+        // linkType.jsonl (no-op when nothing was collected).
+        $collector->finalize($this->fs);
     }
 
     /**

@@ -11,7 +11,7 @@ use Symfony\Component\String\Slugger\SluggerInterface;
 
 /**
  * Relation half of the vocab model (sibling of {@see TermSetCollector}): materialises an entity core
- * (e.g. `per`) from creator-style values and records typed edges to the item core, then writes the
+ * (e.g. `per`) from creator-style values and records typed edges to the item core, writing the
  * <core>.jsonl + linkType.jsonl + link.jsonl that folio:ingest consumes.
  *
  * Semantics: a person CREATES an object, so edges run person→object (`created`, reverse `created_by`).
@@ -19,27 +19,38 @@ use Symfony\Component\String\Slugger\SluggerInterface;
  * entity, not a string, so the enrich phase can later reconcile it to a Wikidata Q-id (and swap that
  * in as the stable PK). Pure-id / no-letter values are skipped (those reference a provider's own
  * pre-built core, e.g. Cleveland's rich creators core).
+ *
+ * Memory: links are the unbounded dimension (one+ per row — millions on a 460k-row provider), so they
+ * are STREAMED straight to link.jsonl as they're collected, never buffered. No in-memory dedup either:
+ * a link's id is hash(type|subject|object) and FolioBulkInserter ingests with ON CONFLICT(id) DO
+ * NOTHING, so duplicate edges are dropped at ingest. Only the entity map (bounded by distinct
+ * persons/collections) and the tiny link-type set are held in memory.
  */
 final class RelationCollector
 {
+    private const FLAGS = \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES;
+
     /** @var array<string, array{subjectCore:string,objectCore:string,reverseCode:?string}> linkType code => def */
     private array $linkTypes = [];
 
     /** @var array<string, array<string, array<string,mixed>>> coreCode => slug => entity */
     private array $entities = [];
 
-    /** @var list<array{predicate:string,subjectCore:string,subjectId:string,objectCore:string,objectId:string}> */
-    private array $links = [];
+    /** @var resource|null link.jsonl write handle, opened lazily on the first link */
+    private $linkHandle = null;
+
+    private int $linkCount = 0;
 
     public function __construct(
+        private readonly string $normalizeDir,
         private readonly SluggerInterface $slugger = new AsciiSlugger(),
     ) {
     }
 
     /**
      * Record that $values (creator strings on $objectId of $objectCore) are entities in $subjectCore
-     * linked to it by $linkType. Materialises each value as a $subjectCore entity and an edge
-     * subject→object.
+     * linked to it by $linkType. Materialises each value as a $subjectCore entity and STREAMS an edge
+     * subject→object to link.jsonl.
      *
      * @param iterable<mixed> $values
      */
@@ -82,33 +93,40 @@ final class RelationCollector
             $entity['id'] = $slug;
             $this->entities[$subjectCore][$slug] = $entity;
 
-            $this->links[] = [
+            $this->streamLink([
                 'predicate' => $linkType,
                 'subjectCore' => $subjectCore,
                 'subjectId' => $slug,
                 'objectCore' => $objectCore,
                 'objectId' => $objectId,
-            ];
+            ]);
         }
     }
 
     public function isEmpty(): bool
     {
-        return $this->links === [];
+        return $this->linkCount === 0;
     }
 
     /**
-     * Write each entity core (<core>.jsonl), linkType.jsonl and link.jsonl into $normalizeDir.
+     * Finalise: close the streamed link.jsonl and write the entity cores + linkType.jsonl. No-op when
+     * nothing was collected. (link.jsonl itself was written incrementally during add().)
      *
      * @return array{cores:int,links:int}
      */
-    public function write(string $normalizeDir, Filesystem $fs = new Filesystem()): array
+    public function finalize(Filesystem $fs = new Filesystem()): array
     {
-        $flags = \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES;
+        if ($this->linkHandle !== null) {
+            fclose($this->linkHandle);
+            $this->linkHandle = null;
+        }
+        if ($this->linkCount === 0) {
+            return ['cores' => 0, 'links' => 0];
+        }
 
         foreach ($this->entities as $core => $bySlug) {
-            $lines = array_map(static fn (array $e): string => json_encode($e, $flags), array_values($bySlug));
-            $fs->dumpFile("{$normalizeDir}/{$core}.jsonl", implode("\n", $lines) . "\n");
+            $lines = array_map(static fn (array $e): string => json_encode($e, self::FLAGS), array_values($bySlug));
+            $fs->dumpFile("{$this->normalizeDir}/{$core}.jsonl", implode("\n", $lines) . "\n");
         }
 
         $typeLines = [];
@@ -118,22 +136,25 @@ final class RelationCollector
                 'subjectCore' => $def['subjectCore'],
                 'objectCore' => $def['objectCore'],
                 'reverseCode' => $def['reverseCode'],
-            ], $flags);
+            ], self::FLAGS);
         }
-        $fs->dumpFile("{$normalizeDir}/linkType.jsonl", implode("\n", $typeLines) . "\n");
+        $fs->dumpFile("{$this->normalizeDir}/linkType.jsonl", implode("\n", $typeLines) . "\n");
 
-        $seen = [];
-        $linkLines = [];
-        foreach ($this->links as $link) {
-            $key = $link['predicate'] . '|' . $link['subjectId'] . '|' . $link['objectId'];
-            if (isset($seen[$key])) {
-                continue;
+        return ['cores' => count($this->entities), 'links' => $this->linkCount];
+    }
+
+    /** @param array<string,string> $link */
+    private function streamLink(array $link): void
+    {
+        if ($this->linkHandle === null) {
+            $handle = fopen("{$this->normalizeDir}/link.jsonl", 'w');
+            if ($handle === false) {
+                throw new \RuntimeException(sprintf('Cannot open %s/link.jsonl for writing.', $this->normalizeDir));
             }
-            $seen[$key] = true;
-            $linkLines[] = json_encode($link, $flags);
+            $this->linkHandle = $handle;
         }
-        $fs->dumpFile("{$normalizeDir}/link.jsonl", implode("\n", $linkLines) . "\n");
 
-        return ['cores' => count($this->entities), 'links' => count($linkLines)];
+        fwrite($this->linkHandle, json_encode($link, self::FLAGS) . "\n");
+        $this->linkCount++;
     }
 }
