@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle\EventListener;
 
+use Survos\DataBundle\Service\TermSetCollector;
 use Survos\DatasetBundle\Service\DataPaths;
 use Survos\DataContracts\Vocabulary\ItemField;
-use Survos\DataContracts\Vocabulary\MuseumVocab;
+use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\ImportBundle\Event\ImportConvertFinishedEvent;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Filesystem\Filesystem;
@@ -32,29 +33,6 @@ use Symfony\Component\Filesystem\Filesystem;
 #[AsEventListener(event: ImportConvertFinishedEvent::class)]
 final class VocabTermExtractorListener
 {
-    /**
-     * termType → [normalized field keys that contribute to it].
-     *
-     * termType is either 'genre' (ContentType-classifiable) or a MuseumVocab code.
-     * Field keys MUST be ItemField or MuseumVocab constants — never plain strings.
-     *
-     * Grouping rules:
-     *   tec + mat → med  (technique and material are sub-types of medium)
-     *   dept      → org  (department is part of organisation)
-     *   keywords + subject (ItemField) → obj  (MuseumVocab subject code)
-     *   creator (ItemField) → per
-     */
-    private const TERM_FIELDS = [
-        'genre'                   => [ItemField::GENRE_SPECIFIC, ItemField::GENRE_BASIC, ItemField::TYPE],
-        MuseumVocab::MEDIUM       => [MuseumVocab::MEDIUM, MuseumVocab::TECHNIQUE, MuseumVocab::MATERIAL],
-        MuseumVocab::CULTURE      => [MuseumVocab::CULTURE],
-        MuseumVocab::PLACE        => [MuseumVocab::PLACE],
-        MuseumVocab::SUBJECT      => [MuseumVocab::SUBJECT, ItemField::KEYWORDS],
-        MuseumVocab::PERSON       => [MuseumVocab::PERSON, ItemField::CREATOR],
-        MuseumVocab::ORGANISATION => [MuseumVocab::ORGANISATION, MuseumVocab::DEPARTMENT],
-        MuseumVocab::PERIOD       => [MuseumVocab::PERIOD],
-    ];
-
     public function __construct(
         private readonly DataPaths $dataPaths,
         private readonly Filesystem $fs = new Filesystem(),
@@ -76,6 +54,10 @@ final class VocabTermExtractorListener
         /** @var array<string, array<string, array<string, array{term: string, normTerm: string, count: int}>>> */
         $buckets = [];
 
+        // Explicit termset assembly for the folio bridge (termSet.jsonl + term.jsonl). Same scan,
+        // but each field is intentionally declared as belonging to a named term set.
+        $collector = new TermSetCollector();
+
         $fh = fopen($jsonlPath, 'r');
         if (false === $fh) {
             return;
@@ -90,9 +72,14 @@ final class VocabTermExtractorListener
 
                 $lang = $this->extractLang($row);
 
-                foreach (self::TERM_FIELDS as $termType => $fields) {
+                foreach (TermSetBinding::fields() as $termType => $fields) {
                     foreach ($fields as $field) {
-                        foreach ($this->scalars($row[$field] ?? null) as $term) {
+                        $values = $this->scalars($row[$field] ?? null);
+                        if ($values === []) {
+                            continue;
+                        }
+                        $collector->add((string) $termType, $values);
+                        foreach ($values as $term) {
                             $norm = mb_strtolower($term);
                             if (!isset($buckets[$termType][$lang][$norm])) {
                                 $buckets[$termType][$lang][$norm] = ['term' => $term, 'normTerm' => $norm, 'count' => 0];
@@ -108,6 +95,12 @@ final class VocabTermExtractorListener
 
         if (!$buckets) {
             return;
+        }
+
+        // Bridge to folio: write the consolidated termSet.jsonl + term.jsonl that folio:ingest reads
+        // (the per-type voc/*.jsonl below still feed the vocab:map AI classifier).
+        if (!$collector->isEmpty()) {
+            $collector->write($this->dataPaths->stageDir($event->dataset, 'normalize'), $this->fs);
         }
 
         $termsDir = $this->dataPaths->stageDir($event->dataset, 'terms', create: true);
