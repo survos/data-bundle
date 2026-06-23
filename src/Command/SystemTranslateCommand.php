@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle\Command;
 
+use Survos\DataContracts\Dto\Item\BaseItemDto;
 use Survos\DataContracts\Vocabulary\Core;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -53,6 +54,20 @@ final class SystemTranslateCommand
             $plural = $inflector->pluralize($singular)[0] ?? $singular;
             $keys['core.' . $code] = $plural;
             $keys['core.' . $code . '.one'] = $singular;
+        }
+
+        // DTO class labels (Artifact, Document, Photograph…) → dto.<Label>, so the folio detail page
+        // can title its data card with a translatable class name instead of "DTO Data". These are
+        // system/category labels (safe to |trans); proper-noun labels (person/institution names) are
+        // data and must NOT be translated. English source = the label itself.
+        $dtoDir = \dirname((new \ReflectionClass(BaseItemDto::class))->getFileName());
+        foreach (glob($dtoDir . '/*Dto.php') ?: [] as $file) {
+            $short = basename($file, '.php');
+            if (\in_array($short, ['BaseItemDto', 'GenericItemDto'], true)) {
+                continue;
+            }
+            $label = preg_replace('/Dto$/', '', $short);
+            $keys['dto.' . $label] = $label;
         }
         ksort($keys);
 
