@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle\Command;
 
+use Survos\DataContracts\Attribute\VocabTerm;
 use Survos\DataContracts\Dto\Item\BaseItemDto;
 use Survos\DataContracts\Vocabulary\Core;
+use Survos\DataContracts\Vocabulary\MuseumVocab;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
@@ -68,6 +70,21 @@ final class SystemTranslateCommand
             }
             $label = preg_replace('/Dto$/', '', $short);
             $keys['dto.' . $label] = $label;
+        }
+
+        // Museum vocabulary field / term-set labels (Culture, Medium, Genre, Department…) → term.<code>,
+        // so the folio detail page's Terms section can |trans the raw code instead of rendering
+        // 'cul'/'med'/'genre'/'dept'. English source = the constant's #[VocabTerm] label.
+        foreach ((new \ReflectionClass(MuseumVocab::class))->getReflectionConstants() as $const) {
+            $code = $const->getValue();
+            if (!is_string($code) || $code === '') {
+                continue;
+            }
+            $attributes = $const->getAttributes(VocabTerm::class);
+            if ($attributes === []) {
+                continue;
+            }
+            $keys['term.' . $code] = $attributes[0]->newInstance()->label;
         }
         ksort($keys);
 
