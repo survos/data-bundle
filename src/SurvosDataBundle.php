@@ -62,7 +62,10 @@ final class SurvosDataBundle extends AbstractSurvosBundle
 
             $definition = $services->load($ns . $dir . '\\', $srcDir . $dir . '/');
             if ('EventListener' === $dir && !class_exists('Survos\\DatasetBundle\\Service\\DataPaths')) {
-                $definition->exclude($srcDir . 'EventListener/VocabTermExtractorListener.php');
+                $definition->exclude([
+                    $srcDir . 'EventListener/VocabTermExtractorListener.php',
+                    $srcDir . 'EventListener/RelationExtractorListener.php',
+                ]);
             }
         }
 
