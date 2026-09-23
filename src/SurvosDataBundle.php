@@ -24,21 +24,7 @@ final class SurvosDataBundle extends AbstractSurvosBundle
 
         if ($builder->hasExtension('ux_icons')) {
             $builder->prependExtensionConfig('ux_icons', [
-                'aliases' => [
-                    MuseumVocab::PERSON       => 'tabler:user',
-                    MuseumVocab::COLLECTION   => 'tabler:folder',
-                    MuseumVocab::ORGANISATION => 'tabler:building',
-                    MuseumVocab::SUBJECT      => 'tabler:tag',
-                    MuseumVocab::PLACE        => 'tabler:map-pin',
-                    MuseumVocab::GENRE        => 'tabler:category',
-                    MuseumVocab::CULTURE      => 'tabler:world',
-                    MuseumVocab::MEDIUM       => 'tabler:palette',
-                    MuseumVocab::TECHNIQUE    => 'tabler:brush',
-                    MuseumVocab::MATERIAL     => 'tabler:cube',
-                    MuseumVocab::PERIOD       => 'tabler:calendar',
-                    MuseumVocab::EPOCH        => 'tabler:hourglass',
-                    MuseumVocab::DEPARTMENT   => 'tabler:sitemap',
-                ],
+                'aliases' => MuseumVocab::ICONS,
             ]);
         }
     }
