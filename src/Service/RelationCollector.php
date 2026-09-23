@@ -20,8 +20,18 @@ use Symfony\Component\String\Slugger\SluggerInterface;
  * in as the stable PK). Pure-id / no-letter values are skipped (those reference a provider's own
  * pre-built core, e.g. Cleveland's rich creators core).
  *
+ * **`link.jsonl` is shared, not this collector's file.** "Link" is overloaded — a typed edge between
+ * two rows here, a hyperlink elsewhere — and the plain filename reads like *the* links when it only
+ * ever held *these* links. Other producers write their own edges into the same file for the same
+ * dataset (harvest's CuratescapeProvider writes story→stop `has_stop` edges with an ordinal), and
+ * this class used to open it in 'w', so whichever ran last silently erased the other's rows: 31
+ * Baltimore tours reached the folio as a bare stopCount for two weeks. finalize() therefore MERGES —
+ * it rewrites link.jsonl as (rows whose predicate this run does not declare) + (this run's rows),
+ * which is idempotent and leaves every other producer's edges alone.
+ *
  * Memory: links are the unbounded dimension (one+ per row — millions on a 460k-row provider), so they
- * are STREAMED straight to link.jsonl as they're collected, never buffered. No in-memory dedup either:
+ * are STREAMED straight to a temp file as they're collected, never buffered — and the merge streams
+ * both sides too, so preserving other producers' rows costs one extra pass over the file, not RAM. No in-memory dedup either:
  * a link's id is hash(type|subject|object) and FolioBulkInserter ingests with ON CONFLICT(id) DO
  * NOTHING, so duplicate edges are dropped at ingest. Only the entity map (bounded by distinct
  * persons/collections) and the tiny link-type set are held in memory.
@@ -121,6 +131,10 @@ final class RelationCollector
             $this->linkHandle = null;
         }
         if ($this->linkCount === 0) {
+            // Nothing collected: leave link.jsonl and linkType.jsonl exactly as they are. A
+            // provider with no creator-style relations must not blank another producer's edges.
+            $fs->remove($this->partFile());
+
             return ['cores' => 0, 'links' => 0];
         }
 
@@ -138,18 +152,94 @@ final class RelationCollector
                 'reverseCode' => $def['reverseCode'],
             ], self::FLAGS);
         }
-        $fs->dumpFile("{$this->normalizeDir}/linkType.jsonl", implode("\n", $typeLines) . "\n");
+        // Same merge rule as the links: keep every type this run did not declare.
+        $foreignTypes = [];
+        foreach ($this->readLines("{$this->normalizeDir}/linkType.jsonl") as $line) {
+            $row = json_decode($line, true);
+            if (\is_array($row) && !isset($this->linkTypes[(string) ($row['code'] ?? '')])) {
+                $foreignTypes[] = $line;
+            }
+        }
+        $fs->dumpFile("{$this->normalizeDir}/linkType.jsonl", implode("\n", [...$foreignTypes, ...$typeLines]) . "\n");
+
+        $this->mergeLinks($fs);
 
         return ['cores' => count($this->entities), 'links' => $this->linkCount];
+    }
+
+    private function partFile(): string
+    {
+        return "{$this->normalizeDir}/link.jsonl.part";
+    }
+
+    /**
+     * Rewrite link.jsonl as (other producers' edges) + (this run's edges), streaming both sides so a
+     * multi-million-link provider never lands in memory. Ownership is exactly what this run declared
+     * in $linkTypes — nothing wider — so an unknown predicate is always somebody else's and survives.
+     */
+    private function mergeLinks(Filesystem $fs): void
+    {
+        $target = "{$this->normalizeDir}/link.jsonl";
+        $merged = "{$this->normalizeDir}/link.jsonl.merging";
+        $out = fopen($merged, 'w');
+        if ($out === false) {
+            throw new \RuntimeException(sprintf('Cannot open %s for writing.', $merged));
+        }
+
+        try {
+            foreach ($this->readLines($target) as $line) {
+                $row = json_decode($line, true);
+                if (!\is_array($row) || !isset($this->linkTypes[(string) ($row['predicate'] ?? '')])) {
+                    fwrite($out, $line . "\n");
+                }
+            }
+            $part = fopen($this->partFile(), 'r');
+            if ($part === false) {
+                throw new \RuntimeException(sprintf('Cannot read %s.', $this->partFile()));
+            }
+            try {
+                stream_copy_to_stream($part, $out);
+            } finally {
+                fclose($part);
+            }
+        } finally {
+            fclose($out);
+        }
+
+        $fs->rename($merged, $target, overwrite: true);
+        $fs->remove($this->partFile());
+    }
+
+    /** @return iterable<string> non-empty trimmed lines, or nothing when the file is absent */
+    private function readLines(string $file): iterable
+    {
+        if (!is_file($file)) {
+            return;
+        }
+        $handle = fopen($file, 'r');
+        if ($handle === false) {
+            return;
+        }
+        try {
+            while (($line = fgets($handle)) !== false) {
+                if (($line = trim($line)) !== '') {
+                    yield $line;
+                }
+            }
+        } finally {
+            fclose($handle);
+        }
     }
 
     /** @param array<string,string> $link */
     private function streamLink(array $link): void
     {
         if ($this->linkHandle === null) {
-            $handle = fopen("{$this->normalizeDir}/link.jsonl", 'w');
+            // A temp sibling, merged into link.jsonl by finalize(). Writing straight to link.jsonl
+            // would truncate another producer's edges before we know which predicates are ours.
+            $handle = fopen($this->partFile(), 'w');
             if ($handle === false) {
-                throw new \RuntimeException(sprintf('Cannot open %s/link.jsonl for writing.', $this->normalizeDir));
+                throw new \RuntimeException(sprintf('Cannot open %s for writing.', $this->partFile()));
             }
             $this->linkHandle = $handle;
         }
