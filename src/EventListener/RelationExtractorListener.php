@@ -6,7 +6,7 @@ namespace Survos\DataBundle\EventListener;
 
 use Survos\DataBundle\Service\RelationCollector;
 use Survos\DataContracts\Vocabulary\RelationBinding;
-use Survos\DatasetBundle\Service\DataPaths;
+use Survos\DataContracts\Path\DataPaths;
 use Survos\ImportBundle\Event\ImportConvertFinishedEvent;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Filesystem\Filesystem;

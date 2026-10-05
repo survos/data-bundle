@@ -14,7 +14,7 @@
         "doctrine/orm": "^3.6",
         "doctrine/doctrine-bundle": "^3.2",
         "doctrine/dbal": "^3.9||^4.2",
-        "survos/data-contracts": "^2.5",
+        "survos/data-contracts": "^2.32",
         "survos/field-bundle": "^2.5",
         "survos/import-bundle": "^2.5",
         "survos/kit-bundle": "^2.5",

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Survos\DataBundle\EventListener;
 
 use Survos\DataBundle\Service\TermSetCollector;
-use Survos\DatasetBundle\Service\DataPaths;
+use Survos\DataContracts\Path\DataPaths;
 use Survos\DataContracts\Vocabulary\ItemField;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\ImportBundle\Event\ImportConvertFinishedEvent;
