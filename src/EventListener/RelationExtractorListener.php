@@ -42,10 +42,13 @@ final class RelationExtractorListener
         }
 
         // The item core being scanned (e.g. obj) is the OBJECT side of every edge.
-        $itemCore = basename($jsonlPath, '.jsonl');
+        $itemCore = basename(basename($jsonlPath, '.gz'), '.jsonl');
 
         $collector = new RelationCollector($normalizeDir);
-        $fh = fopen($jsonlPath, 'r');
+        // compress.zlib:// reads gzipped AND plain files: normalized cores are now obj.jsonl.gz, and
+        // fgets() on raw gzip bytes decoded nothing, so every relation core (per, coll) and its links
+        // silently vanished from rebuilt folios.
+        $fh = fopen('compress.zlib://' . $jsonlPath, 'r');
         if ($fh === false) {
             return;
         }

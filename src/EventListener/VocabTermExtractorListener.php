@@ -58,7 +58,8 @@ final class VocabTermExtractorListener
         // but each field is intentionally declared as belonging to a named term set.
         $collector = new TermSetCollector();
 
-        $fh = fopen($jsonlPath, 'r');
+        // compress.zlib:// reads gzipped AND plain files (normalized cores may be obj.jsonl.gz).
+        $fh = fopen('compress.zlib://' . $jsonlPath, 'r');
         if (false === $fh) {
             return;
         }
