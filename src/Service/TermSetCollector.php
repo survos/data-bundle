@@ -9,7 +9,7 @@ use Symfony\Component\String\Slugger\AsciiSlugger;
 use Symfony\Component\String\Slugger\SluggerInterface;
 
 /**
- * Explicit termset builder: "this list of values belongs to THIS termset — add/create them."
+ * Explicit termset builder: "this list of values belongs to THIS termset — add/create them.".
  *
  * The point is intentionality. Rather than implicitly hoping a field name happens to line up with
  * a termset, a normalizer states it outright — `$collector->add('pla', $row[SUBJECTS_GEOGRAPHIC])`
@@ -43,16 +43,16 @@ final class TermSetCollector
                 continue;
             }
             $label = trim($value);
-            if ($label === '') {
+            if ('' === $label) {
                 continue;
             }
             $code = $this->slugger->slug($label)->lower()->toString();
-            if ($code === '') {
+            if ('' === $code) {
                 continue;
             }
 
             $existing = $this->terms[$setCode][$code] ?? null;
-            if ($existing === null) {
+            if (null === $existing) {
                 $this->terms[$setCode][$code] = ['code' => $code, 'label' => $label, 'count' => 1];
                 continue;
             }
@@ -61,14 +61,14 @@ final class TermSetCollector
             if ($existing['label'] === mb_strtolower($existing['label']) && $label !== mb_strtolower($label)) {
                 $existing['label'] = $label;
             }
-            $existing['count']++;
+            ++$existing['count'];
             $this->terms[$setCode][$code] = $existing;
         }
     }
 
     public function isEmpty(): bool
     {
-        return $this->terms === [];
+        return [] === $this->terms;
     }
 
     /**
@@ -99,12 +99,12 @@ final class TermSetCollector
                     'label' => $term['label'],
                     'meta' => ['count' => $term['count']],
                 ], $flags);
-                $termCount++;
+                ++$termCount;
             }
         }
 
-        $fs->dumpFile($normalizeDir . '/termSet.jsonl', implode("\n", $setLines) . "\n");
-        $fs->dumpFile($normalizeDir . '/term.jsonl', implode("\n", $termLines) . "\n");
+        $fs->dumpFile($normalizeDir.'/termSet.jsonl', implode("\n", $setLines)."\n");
+        $fs->dumpFile($normalizeDir.'/term.jsonl', implode("\n", $termLines)."\n");
 
         return ['sets' => count($setLines), 'terms' => $termCount];
     }

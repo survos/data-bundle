@@ -77,13 +77,13 @@ final class VocabMap
     public function toArray(): array
     {
         return [
-            'lang'        => $this->lang,
-            'keyword'     => $this->keyword,
+            'lang' => $this->lang,
+            'keyword' => $this->keyword,
             'normKeyword' => $this->normKeyword,
             'contentType' => $this->contentType,
-            'confidence'  => $this->confidence,
-            'model'       => $this->model,
-            'createdAt'   => $this->createdAt->format(\DateTimeInterface::ATOM),
+            'confidence' => $this->confidence,
+            'model' => $this->model,
+            'createdAt' => $this->createdAt->format(\DateTimeInterface::ATOM),
         ];
     }
 
@@ -91,8 +91,8 @@ final class VocabMap
     {
         $obj = new self($row['lang'], $row['keyword']);
         $obj->contentType = $row['contentType'] ?? null;
-        $obj->confidence  = (float) ($row['confidence'] ?? 0.0);
-        $obj->model       = $row['model'] ?? null;
+        $obj->confidence = (float) ($row['confidence'] ?? 0.0);
+        $obj->model = $row['model'] ?? null;
         if (isset($row['createdAt'])) {
             $obj->createdAt = new \DateTimeImmutable($row['createdAt']);
         }

@@ -28,7 +28,8 @@ class VocabLabelRepository extends ServiceEntityRepository
     /**
      * Returns content types that have no label for the given language.
      *
-     * @param  string[] $contentTypeSlugs
+     * @param string[] $contentTypeSlugs
+     *
      * @return string[]
      */
     public function findUnlabelled(string $lang, array $contentTypeSlugs): array

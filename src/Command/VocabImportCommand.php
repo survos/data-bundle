@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Survos\DataBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
-use Survos\DataBundle\Entity\VocabLabel;
-use Survos\DataBundle\Entity\VocabMap;
 use Survos\DataBundle\Repository\VocabLabelRepository;
 use Survos\DataBundle\Repository\VocabMapRepository;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -19,8 +17,8 @@ final class VocabImportCommand
 {
     public function __construct(
         private readonly EntityManagerInterface $em,
-        private readonly VocabMapRepository     $maps,
-        private readonly VocabLabelRepository   $labels,
+        private readonly VocabMapRepository $maps,
+        private readonly VocabLabelRepository $labels,
     ) {
     }
 
@@ -34,7 +32,7 @@ final class VocabImportCommand
         int $batchSize = 500,
     ): int {
         $imported = 0;
-        $updated  = 0;
+        $updated = 0;
 
         foreach ($this->rows($input) as $row) {
             if ($labels) {
@@ -60,7 +58,7 @@ final class VocabImportCommand
                 }
             }
 
-            $obj->id === null ? ++$imported : ++$updated;
+            null === $obj->id ? ++$imported : ++$updated;
 
             if (($imported + $updated) % $batchSize === 0) {
                 $this->em->flush();
@@ -82,7 +80,7 @@ final class VocabImportCommand
     /** @return iterable<array<string, mixed>> */
     private function rows(?string $input): iterable
     {
-        $fh = $input !== null ? fopen($input, 'r') : \STDIN;
+        $fh = null !== $input ? fopen($input, 'r') : \STDIN;
         if (false === $fh) {
             throw new \RuntimeException("Cannot open $input for reading.");
         }
@@ -99,7 +97,7 @@ final class VocabImportCommand
             yield $row;
         }
 
-        if ($input !== null) {
+        if (null !== $input) {
             fclose($fh);
         }
     }

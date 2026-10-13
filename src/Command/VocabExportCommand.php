@@ -17,7 +17,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 final class VocabExportCommand
 {
     public function __construct(
-        private readonly VocabMapRepository   $maps,
+        private readonly VocabMapRepository $maps,
         private readonly VocabLabelRepository $labels,
     ) {
     }
@@ -31,7 +31,7 @@ final class VocabExportCommand
         #[Option('Export VocabLabel rows instead of VocabMap')]
         bool $labels = false,
     ): int {
-        $fh = $output !== null ? fopen($output, 'w') : \STDOUT;
+        $fh = null !== $output ? fopen($output, 'w') : \STDOUT;
         if (false === $fh) {
             $io->error("Cannot open $output for writing.");
 
@@ -43,7 +43,7 @@ final class VocabExportCommand
         try {
             if ($labels) {
                 $qb = $this->labels->createQueryBuilder('v');
-                if ($lang !== null) {
+                if (null !== $lang) {
                     $qb->where('v.lang = :lang')->setParameter('lang', $lang);
                 }
                 foreach ($qb->getQuery()->toIterable() as $row) {
@@ -53,7 +53,7 @@ final class VocabExportCommand
                 }
             } else {
                 $qb = $this->maps->createQueryBuilder('v');
-                if ($lang !== null) {
+                if (null !== $lang) {
                     $qb->where('v.lang = :lang')->setParameter('lang', $lang);
                 }
                 foreach ($qb->getQuery()->toIterable() as $row) {
@@ -63,13 +63,13 @@ final class VocabExportCommand
                 }
             }
         } finally {
-            if ($output !== null) {
+            if (null !== $output) {
                 fclose($fh);
             }
         }
 
         $table = $labels ? 'VocabLabel' : 'VocabMap';
-        $output !== null
+        null !== $output
             ? $io->success(sprintf('Exported %d %s row(s) to %s.', $count, $table, $output))
             : $io->writeln(sprintf('Exported %d %s row(s).', $count, $table), \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_VERBOSE);
 

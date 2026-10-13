@@ -66,10 +66,10 @@ final class VocabLabel
     {
         return [
             'contentType' => $this->contentType,
-            'lang'        => $this->lang,
-            'label'       => $this->label,
-            'model'       => $this->model,
-            'createdAt'   => $this->createdAt->format(\DateTimeInterface::ATOM),
+            'lang' => $this->lang,
+            'label' => $this->label,
+            'model' => $this->model,
+            'createdAt' => $this->createdAt->format(\DateTimeInterface::ATOM),
         ];
     }
 

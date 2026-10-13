@@ -26,7 +26,7 @@ use Survos\DataContracts\Vocabulary\ItemField;
 final class VocabResolver
 {
     public function __construct(
-        private readonly VocabMapRepository   $maps,
+        private readonly VocabMapRepository $maps,
         private readonly VocabLabelRepository $labels,
     ) {
     }
@@ -34,27 +34,27 @@ final class VocabResolver
     /**
      * Resolve a normalized record to a ContentType slug.
      *
-     * @param array<string, mixed> $record  normalized record, must include lang if keywords are foreign
+     * @param array<string, mixed> $record normalized record, must include lang if keywords are foreign
      */
     public function resolve(array $record): string
     {
         // Fast path: English keywords + known string maps
         $type = ContentType::fromRecord($record);
-        if ($type !== ContentType::OBJECT) {
+        if (ContentType::OBJECT !== $type) {
             return $type;
         }
 
         // DB path: look up foreign keywords via VocabMap
         $lang = $record[ItemField::LANGUAGE] ?? $record['lang'] ?? null;
-        if ($lang === null || $lang === 'eng' || $lang === 'en') {
+        if (null === $lang || 'eng' === $lang || 'en' === $lang) {
             return $type;
         }
 
         $candidates = array_merge(
             (array) ($record[ItemField::GENRE_SPECIFIC] ?? []),
-            (array) ($record[ItemField::GENRE_BASIC]    ?? []),
-            (array) ($record['keywords']                ?? []),
-            (array) ($record['subject']                 ?? []),
+            (array) ($record[ItemField::GENRE_BASIC] ?? []),
+            (array) ($record['keywords'] ?? []),
+            (array) ($record['subject'] ?? []),
         );
 
         $best = null;
@@ -62,7 +62,7 @@ final class VocabResolver
 
         foreach ($candidates as $keyword) {
             $row = $this->maps->findByLangKeyword($lang, (string) $keyword);
-            if ($row === null || $row->contentType === null) {
+            if (null === $row || null === $row->contentType) {
                 continue;
             }
             if ($row->confidence > $bestConfidence) {

@@ -29,10 +29,11 @@ final class TermSetExtractor
 {
     public function __construct(
         private readonly SluggerInterface $slugger = new AsciiSlugger(),
-    ) {}
+    ) {
+    }
 
     /**
-     * @return array<string,string> MuseumVocab code => label, for fields flagged #[VocabTerm(termSet: true)].
+     * @return array<string,string> museumVocab code => label, for fields flagged #[VocabTerm(termSet: true)]
      */
     public function termSetFields(): array
     {
@@ -57,7 +58,7 @@ final class TermSetExtractor
      */
     public function extractFromProfile(string $normalizeDir): array
     {
-        $profilePath = $normalizeDir . '/obj.profile.json';
+        $profilePath = $normalizeDir.'/obj.profile.json';
         if (!is_file($profilePath)) {
             return ['sets' => 0, 'terms' => 0];
         }
@@ -72,13 +73,13 @@ final class TermSetExtractor
 
         foreach ($this->termSetFields() as $code => $label) {
             $values = $this->profileValues($fieldStats[$code] ?? null);
-            if ($values === []) {
+            if ([] === $values) {
                 continue;
             }
             $sets[$code] ??= ['code' => $code, 'label' => $label];
             foreach ($values as $value) {
                 $slug = $this->slug($value);
-                if ($slug === '') {
+                if ('' === $slug) {
                     continue;
                 }
                 if (!isset($terms[$code][$slug])) {
@@ -91,22 +92,22 @@ final class TermSetExtractor
 
         $sets = array_filter($sets, static fn (array $set): bool => ($terms[$set['code']] ?? []) !== []);
 
-        $setWriter = JsonlWriter::open($normalizeDir . '/termSet.jsonl', mode: 'w');
+        $setWriter = JsonlWriter::open($normalizeDir.'/termSet.jsonl', mode: 'w');
         foreach ($sets as $set) {
             $setWriter->write($set, (string) $set['code']);
         }
         $setWriter->finish();
 
         $termCount = 0;
-        $termWriter = JsonlWriter::open($normalizeDir . '/term.jsonl', mode: 'w');
+        $termWriter = JsonlWriter::open($normalizeDir.'/term.jsonl', mode: 'w');
         foreach ($terms as $setCode => $rows) {
             if (!isset($sets[$setCode])) {
                 continue;
             }
             ksort($rows);
             foreach ($rows as $slug => $term) {
-                $termWriter->write($term, $setCode . ':' . $slug);
-                $termCount++;
+                $termWriter->write($term, $setCode.':'.$slug);
+                ++$termCount;
             }
         }
         $termWriter->finish();
@@ -132,7 +133,7 @@ final class TermSetExtractor
         }
 
         $elem = $stat['arrayStats']['_elemDistinctValues'] ?? null;
-        if (is_array($elem) && $elem !== []) {
+        if (is_array($elem) && [] !== $elem) {
             return array_values(array_map('strval', array_keys($elem)));
         }
 
@@ -160,7 +161,7 @@ final class TermSetExtractor
         $sets = [];
         $terms = [];
 
-        $setFile = $normalizeDir . '/termSet.jsonl';
+        $setFile = $normalizeDir.'/termSet.jsonl';
         if (is_file($setFile)) {
             foreach (\Survos\JsonlBundle\IO\JsonlReader::open($setFile) as $set) {
                 if (isset($set['code'])) {
@@ -169,7 +170,7 @@ final class TermSetExtractor
             }
         }
 
-        $termFile = $normalizeDir . '/term.jsonl';
+        $termFile = $normalizeDir.'/term.jsonl';
         if (is_file($termFile)) {
             foreach (\Survos\JsonlBundle\IO\JsonlReader::open($termFile) as $term) {
                 if (isset($term['termSet'], $term['code'])) {

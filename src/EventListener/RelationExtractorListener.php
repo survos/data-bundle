@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Survos\DataBundle\EventListener;
 
 use Survos\DataBundle\Service\RelationCollector;
-use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Path\DataPaths;
+use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\ImportBundle\Event\ImportConvertFinishedEvent;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Filesystem\Filesystem;
@@ -31,13 +31,13 @@ final class RelationExtractorListener
     public function __invoke(ImportConvertFinishedEvent $event): void
     {
         $relations = RelationBinding::relations();
-        if ($relations === []) {
+        if ([] === $relations) {
             return;
         }
 
         $normalizeDir = $this->dataPaths->stageDir($event->dataset, 'normalize');
-        $jsonlPath = $normalizeDir . '/' . basename($event->jsonlPath);
-        if (!is_file($jsonlPath) || filesize($jsonlPath) === 0) {
+        $jsonlPath = $normalizeDir.'/'.basename($event->jsonlPath);
+        if (!is_file($jsonlPath) || 0 === filesize($jsonlPath)) {
             return;
         }
 
@@ -48,8 +48,8 @@ final class RelationExtractorListener
         // compress.zlib:// reads gzipped AND plain files: normalized cores are now obj.jsonl.gz, and
         // fgets() on raw gzip bytes decoded nothing, so every relation core (per, coll) and its links
         // silently vanished from rebuilt folios.
-        $fh = fopen('compress.zlib://' . $jsonlPath, 'r');
-        if ($fh === false) {
+        $fh = fopen('compress.zlib://'.$jsonlPath, 'r');
+        if (false === $fh) {
             return;
         }
 
@@ -60,14 +60,14 @@ final class RelationExtractorListener
                     continue;
                 }
                 $itemId = $row['id'] ?? null;
-                if (!is_string($itemId) || $itemId === '') {
+                if (!is_string($itemId) || '' === $itemId) {
                     continue;
                 }
 
                 foreach ($relations as $entityCore => $spec) {
                     foreach ($spec['sourceFields'] as $field) {
                         $values = $this->scalars($row[$field] ?? null);
-                        if ($values !== []) {
+                        if ([] !== $values) {
                             $collector->add($entityCore, $spec['linkType'], $spec['reverseCode'], $itemCore, $itemId, $values, $spec['personName'], $spec['contentType']);
                         }
                     }
@@ -93,12 +93,12 @@ final class RelationExtractorListener
         foreach ((array) $value as $item) {
             if (\is_string($item)) {
                 $s = trim($item);
-                if ($s !== '') {
+                if ('' !== $s) {
                     $out[] = $s;
                 }
             } elseif (\is_array($item)) {
                 foreach (['name', 'label', 'value'] as $key) {
-                    if (isset($item[$key]) && \is_string($item[$key]) && trim($item[$key]) !== '') {
+                    if (isset($item[$key]) && \is_string($item[$key]) && '' !== trim($item[$key])) {
                         $out[] = trim($item[$key]);
                         break;
                     }

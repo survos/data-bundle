@@ -33,7 +33,8 @@ class VocabMapRepository extends ServiceEntityRepository
     /**
      * Given a list of keywords in a language, return the subset not yet in the cache.
      *
-     * @param  string[] $keywords
+     * @param string[] $keywords
+     *
      * @return string[]
      */
     public function findUncached(string $lang, array $keywords): array

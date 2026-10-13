@@ -44,9 +44,9 @@ final class VocabTermExtractorListener
         // Use the canonical normalize stage file — some listeners (e.g. EuroSetRecordListener)
         // write directly to 20_normalize/ bypassing the pipeline's output path.
         $jsonlPath = $this->dataPaths->stageDir($event->dataset, 'normalize')
-            . '/' . basename($event->jsonlPath);
+            .'/'.basename($event->jsonlPath);
 
-        if (!is_file($jsonlPath) || filesize($jsonlPath) === 0) {
+        if (!is_file($jsonlPath) || 0 === filesize($jsonlPath)) {
             return;
         }
 
@@ -59,7 +59,7 @@ final class VocabTermExtractorListener
         $collector = new TermSetCollector();
 
         // compress.zlib:// reads gzipped AND plain files (normalized cores may be obj.jsonl.gz).
-        $fh = fopen('compress.zlib://' . $jsonlPath, 'r');
+        $fh = fopen('compress.zlib://'.$jsonlPath, 'r');
         if (false === $fh) {
             return;
         }
@@ -76,7 +76,7 @@ final class VocabTermExtractorListener
                 foreach (TermSetBinding::fields() as $termType => $fields) {
                     foreach ($fields as $field) {
                         $values = $this->scalars($row[$field] ?? null);
-                        if ($values === []) {
+                        if ([] === $values) {
                             continue;
                         }
                         $collector->add((string) $termType, $values);
@@ -122,7 +122,7 @@ final class VocabTermExtractorListener
                     implode("\n", array_map(
                         fn ($r) => json_encode($r, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES),
                         array_values($terms),
-                    )) . "\n",
+                    ))."\n",
                 );
             }
         }

@@ -58,8 +58,8 @@ final class SurvosDataBundle extends AbstractSurvosBundle
     {
         parent::loadExtension($config, $container, $builder);
 
-        $ns     = 'Survos\\DataBundle\\';
-        $srcDir = $this->getPath() . '/src/';
+        $ns = 'Survos\\DataBundle\\';
+        $srcDir = $this->getPath().'/src/';
 
         $services = $container->services()
             ->defaults()
@@ -67,15 +67,15 @@ final class SurvosDataBundle extends AbstractSurvosBundle
                 ->autoconfigure();
 
         foreach (['EventListener', 'Service'] as $dir) {
-            if (!is_dir($srcDir . $dir)) {
+            if (!is_dir($srcDir.$dir)) {
                 continue;
             }
 
-            $services->load($ns . $dir . '\\', $srcDir . $dir . '/');
+            $services->load($ns.$dir.'\\', $srcDir.$dir.'/');
         }
 
-        if (is_dir($srcDir . 'Repository')) {
-            $services->load($ns . 'Repository\\', $srcDir . 'Repository/')
+        if (is_dir($srcDir.'Repository')) {
+            $services->load($ns.'Repository\\', $srcDir.'Repository/')
                 ->tag('doctrine.repository_service');
         }
     }

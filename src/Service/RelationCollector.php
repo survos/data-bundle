@@ -47,7 +47,7 @@ final class RelationCollector
     private array $entities = [];
 
     /** @var resource|null link.jsonl write handle, opened lazily on the first link */
-    private $linkHandle = null;
+    private $linkHandle;
 
     private int $linkCount = 0;
 
@@ -74,7 +74,7 @@ final class RelationCollector
             }
             $value = trim($value);
             // Skip empties and bare ids (no letters): those point at a provider's own entity core.
-            if ($value === '' || preg_match('/\p{L}/u', $value) !== 1) {
+            if ('' === $value || 1 !== preg_match('/\p{L}/u', $value)) {
                 continue;
             }
 
@@ -85,10 +85,10 @@ final class RelationCollector
                 $parsed = PersonName::parse($value);
                 $name = $parsed['name'];
                 $entity = ['id' => '', 'label' => $name, 'contentType' => $parsed['kind']];
-                if ($parsed['birth'] !== null) {
+                if (null !== $parsed['birth']) {
                     $entity['birth'] = $parsed['birth'];
                 }
-                if ($parsed['death'] !== null) {
+                if (null !== $parsed['death']) {
                     $entity['death'] = $parsed['death'];
                 }
             } else {
@@ -97,7 +97,7 @@ final class RelationCollector
             }
 
             $slug = $this->slugger->slug($name)->lower()->toString();
-            if ($slug === '') {
+            if ('' === $slug) {
                 continue;
             }
             $entity['id'] = $slug;
@@ -115,22 +115,22 @@ final class RelationCollector
 
     public function isEmpty(): bool
     {
-        return $this->linkCount === 0;
+        return 0 === $this->linkCount;
     }
 
     /**
      * Finalise: close the streamed link.jsonl and write the entity cores + linkType.jsonl. No-op when
-     * nothing was collected. (link.jsonl itself was written incrementally during add().)
+     * nothing was collected. (link.jsonl itself was written incrementally during add().).
      *
      * @return array{cores:int,links:int}
      */
     public function finalize(Filesystem $fs = new Filesystem()): array
     {
-        if ($this->linkHandle !== null) {
+        if (null !== $this->linkHandle) {
             fclose($this->linkHandle);
             $this->linkHandle = null;
         }
-        if ($this->linkCount === 0) {
+        if (0 === $this->linkCount) {
             // Nothing collected: leave link.jsonl and linkType.jsonl exactly as they are. A
             // provider with no creator-style relations must not blank another producer's edges.
             $fs->remove($this->partFile());
@@ -140,7 +140,7 @@ final class RelationCollector
 
         foreach ($this->entities as $core => $bySlug) {
             $lines = array_map(static fn (array $e): string => json_encode($e, self::FLAGS), array_values($bySlug));
-            $fs->dumpFile("{$this->normalizeDir}/{$core}.jsonl", implode("\n", $lines) . "\n");
+            $fs->dumpFile("{$this->normalizeDir}/{$core}.jsonl", implode("\n", $lines)."\n");
         }
 
         $typeLines = [];
@@ -160,7 +160,7 @@ final class RelationCollector
                 $foreignTypes[] = $line;
             }
         }
-        $fs->dumpFile("{$this->normalizeDir}/linkType.jsonl", implode("\n", [...$foreignTypes, ...$typeLines]) . "\n");
+        $fs->dumpFile("{$this->normalizeDir}/linkType.jsonl", implode("\n", [...$foreignTypes, ...$typeLines])."\n");
 
         $this->mergeLinks($fs);
 
@@ -182,7 +182,7 @@ final class RelationCollector
         $target = "{$this->normalizeDir}/link.jsonl";
         $merged = "{$this->normalizeDir}/link.jsonl.merging";
         $out = fopen($merged, 'w');
-        if ($out === false) {
+        if (false === $out) {
             throw new \RuntimeException(sprintf('Cannot open %s for writing.', $merged));
         }
 
@@ -190,11 +190,11 @@ final class RelationCollector
             foreach ($this->readLines($target) as $line) {
                 $row = json_decode($line, true);
                 if (!\is_array($row) || !isset($this->linkTypes[(string) ($row['predicate'] ?? '')])) {
-                    fwrite($out, $line . "\n");
+                    fwrite($out, $line."\n");
                 }
             }
             $part = fopen($this->partFile(), 'r');
-            if ($part === false) {
+            if (false === $part) {
                 throw new \RuntimeException(sprintf('Cannot read %s.', $this->partFile()));
             }
             try {
@@ -217,7 +217,7 @@ final class RelationCollector
             return;
         }
         $handle = fopen($file, 'r');
-        if ($handle === false) {
+        if (false === $handle) {
             return;
         }
         try {
@@ -234,17 +234,17 @@ final class RelationCollector
     /** @param array<string,string> $link */
     private function streamLink(array $link): void
     {
-        if ($this->linkHandle === null) {
+        if (null === $this->linkHandle) {
             // A temp sibling, merged into link.jsonl by finalize(). Writing straight to link.jsonl
             // would truncate another producer's edges before we know which predicates are ours.
             $handle = fopen($this->partFile(), 'w');
-            if ($handle === false) {
+            if (false === $handle) {
                 throw new \RuntimeException(sprintf('Cannot open %s for writing.', $this->partFile()));
             }
             $this->linkHandle = $handle;
         }
 
-        fwrite($this->linkHandle, json_encode($link, self::FLAGS) . "\n");
-        $this->linkCount++;
+        fwrite($this->linkHandle, json_encode($link, self::FLAGS)."\n");
+        ++$this->linkCount;
     }
 }

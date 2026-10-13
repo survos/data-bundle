@@ -20,7 +20,7 @@ final class NormalizeFallbackListener
 {
     public function __invoke(ImportConvertRowEvent $event): void
     {
-        if ($event->row === null || $event->stage !== 'normalize') {
+        if (null === $event->row || 'normalize' !== $event->stage) {
             return;
         }
 
@@ -32,6 +32,5 @@ final class NormalizeFallbackListener
         if (!isset($row[ItemField::IIIF_BASE])) {
             $row[ItemField::IIIF_BASE] = $row[ItemField::LARGE_IMAGE_URL] ?? null;
         }
-
     }
 }
