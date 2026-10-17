@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Survos\DataBundle\Service;
 
+use Survos\DataContracts\Dto\Link\LinkRow;
+use Survos\DataContracts\Dto\Link\LinkTypeRow;
+use Survos\DataContracts\Link\LinkFile;
 use Survos\DataContracts\Util\PersonName;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\String\Slugger\AsciiSlugger;
@@ -25,9 +28,10 @@ use Symfony\Component\String\Slugger\SluggerInterface;
  * ever held *these* links. Other producers write their own edges into the same file for the same
  * dataset (harvest's CuratescapeProvider writes story→stop `has_stop` edges with an ordinal), and
  * this class used to open it in 'w', so whichever ran last silently erased the other's rows: 31
- * Baltimore tours reached the folio as a bare stopCount for two weeks. finalize() therefore MERGES —
- * it rewrites link.jsonl as (rows whose predicate this run does not declare) + (this run's rows),
- * which is idempotent and leaves every other producer's edges alone.
+ * Baltimore tours reached the folio as a bare stopCount for two weeks. finalize() therefore MERGES
+ * through {@see LinkFile::merge()}: (rows of link types this run does not declare) + (this run's
+ * rows), keyed by subjectCore:code:objectCore, which is idempotent and leaves every other
+ * producer's edges alone.
  *
  * Memory: links are the unbounded dimension (one+ per row — millions on a 460k-row provider), so they
  * are STREAMED straight to a temp file as they're collected, never buffered — and the merge streams
@@ -40,7 +44,7 @@ final class RelationCollector
 {
     private const FLAGS = \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES;
 
-    /** @var array<string, array{subjectCore:string,objectCore:string,reverseCode:?string}> linkType code => def */
+    /** @var array<string, LinkTypeRow> LinkTypeRow::key() => type */
     private array $linkTypes = [];
 
     /** @var array<string, array<string, array<string,mixed>>> coreCode => slug => entity */
@@ -66,7 +70,7 @@ final class RelationCollector
      */
     public function add(string $subjectCore, string $linkType, ?string $reverseCode, string $objectCore, string $objectId, iterable $values, bool $personName = false, string $contentType = 'agent'): void
     {
-        $this->linkTypes[$linkType] ??= ['subjectCore' => $subjectCore, 'objectCore' => $objectCore, 'reverseCode' => $reverseCode];
+        $type = $this->linkTypes[LinkTypeRow::keyOf($subjectCore, $linkType, $objectCore)] ??= new LinkTypeRow($linkType, $subjectCore, $objectCore, reverseCode: $reverseCode);
 
         foreach ($values as $value) {
             if (!is_string($value)) {
@@ -103,13 +107,7 @@ final class RelationCollector
             $entity['id'] = $slug;
             $this->entities[$subjectCore][$slug] = $entity;
 
-            $this->streamLink([
-                'predicate' => $linkType,
-                'subjectCore' => $subjectCore,
-                'subjectId' => $slug,
-                'objectCore' => $objectCore,
-                'objectId' => $objectId,
-            ]);
+            $this->streamLink(LinkRow::of($type, $slug, $objectId));
         }
     }
 
@@ -143,71 +141,20 @@ final class RelationCollector
             $fs->dumpFile("{$this->normalizeDir}/{$core}.jsonl", implode("\n", $lines)."\n");
         }
 
-        $typeLines = [];
-        foreach ($this->linkTypes as $code => $def) {
-            $typeLines[] = json_encode([
-                'code' => $code,
-                'subjectCore' => $def['subjectCore'],
-                'objectCore' => $def['objectCore'],
-                'reverseCode' => $def['reverseCode'],
-            ], self::FLAGS);
-        }
-        // Same merge rule as the links: keep every type this run did not declare.
-        $foreignTypes = [];
-        foreach ($this->readLines("{$this->normalizeDir}/linkType.jsonl") as $line) {
-            $row = json_decode($line, true);
-            if (\is_array($row) && !isset($this->linkTypes[(string) ($row['code'] ?? '')])) {
-                $foreignTypes[] = $line;
+        $part = $this->partFile();
+        LinkFile::merge($this->normalizeDir, $this->linkTypes, (function () use ($part): \Generator {
+            foreach ($this->readLines($part) as $line) {
+                yield LinkRow::fromArray(json_decode($line, true, flags: \JSON_THROW_ON_ERROR));
             }
-        }
-        $fs->dumpFile("{$this->normalizeDir}/linkType.jsonl", implode("\n", [...$foreignTypes, ...$typeLines])."\n");
+        })());
+        $fs->remove($part);
 
-        $this->mergeLinks($fs);
-
-        return ['cores' => count($this->entities), 'links' => $this->linkCount];
+        return ['cores' => \count($this->entities), 'links' => $this->linkCount];
     }
 
     private function partFile(): string
     {
         return "{$this->normalizeDir}/link.jsonl.part";
-    }
-
-    /**
-     * Rewrite link.jsonl as (other producers' edges) + (this run's edges), streaming both sides so a
-     * multi-million-link provider never lands in memory. Ownership is exactly what this run declared
-     * in $linkTypes — nothing wider — so an unknown predicate is always somebody else's and survives.
-     */
-    private function mergeLinks(Filesystem $fs): void
-    {
-        $target = "{$this->normalizeDir}/link.jsonl";
-        $merged = "{$this->normalizeDir}/link.jsonl.merging";
-        $out = fopen($merged, 'w');
-        if (false === $out) {
-            throw new \RuntimeException(sprintf('Cannot open %s for writing.', $merged));
-        }
-
-        try {
-            foreach ($this->readLines($target) as $line) {
-                $row = json_decode($line, true);
-                if (!\is_array($row) || !isset($this->linkTypes[(string) ($row['predicate'] ?? '')])) {
-                    fwrite($out, $line."\n");
-                }
-            }
-            $part = fopen($this->partFile(), 'r');
-            if (false === $part) {
-                throw new \RuntimeException(sprintf('Cannot read %s.', $this->partFile()));
-            }
-            try {
-                stream_copy_to_stream($part, $out);
-            } finally {
-                fclose($part);
-            }
-        } finally {
-            fclose($out);
-        }
-
-        $fs->rename($merged, $target, overwrite: true);
-        $fs->remove($this->partFile());
     }
 
     /** @return iterable<string> non-empty trimmed lines, or nothing when the file is absent */
@@ -231,8 +178,7 @@ final class RelationCollector
         }
     }
 
-    /** @param array<string,string> $link */
-    private function streamLink(array $link): void
+    private function streamLink(LinkRow $link): void
     {
         if (null === $this->linkHandle) {
             // A temp sibling, merged into link.jsonl by finalize(). Writing straight to link.jsonl
@@ -244,7 +190,7 @@ final class RelationCollector
             $this->linkHandle = $handle;
         }
 
-        fwrite($this->linkHandle, json_encode($link, self::FLAGS)."\n");
+        fwrite($this->linkHandle, json_encode($link->toArray(), self::FLAGS)."\n");
         ++$this->linkCount;
     }
 }
