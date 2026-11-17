@@ -7,7 +7,10 @@ namespace Survos\DataBundle\Service;
 use Survos\DataContracts\Dto\Link\LinkRow;
 use Survos\DataContracts\Dto\Link\LinkTypeRow;
 use Survos\DataContracts\Link\LinkFile;
+use Survos\DataContracts\Metadata\ContentType;
 use Survos\DataContracts\Util\PersonName;
+use Survos\DataContracts\Vocabulary\Core;
+use Survos\DataContracts\Vocabulary\ItemField;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\String\Slugger\AsciiSlugger;
 use Symfony\Component\String\Slugger\SluggerInterface;
@@ -17,7 +20,7 @@ use Symfony\Component\String\Slugger\SluggerInterface;
  * (e.g. `per`) from creator-style values and records typed edges to the item core, writing the
  * <core>.jsonl + linkType.jsonl + link.jsonl that folio:ingest consumes.
  *
- * Semantics: a person CREATES an object, so edges run person→object (`created`, reverse `created_by`).
+ * Semantics: a person or organization CREATES an object, so edges run agent→object (`created`, reverse `created_by`).
  * Each value is parsed by {@see PersonName} into {id=slug, label, kind, birth?, death?} — a real
  * entity, not a string, so the enrich phase can later reconcile it to a Wikidata Q-id (and swap that
  * in as the stable PK). Pure-id / no-letter values are skipped (those reference a provider's own
@@ -70,8 +73,6 @@ final class RelationCollector
      */
     public function add(string $subjectCore, string $linkType, ?string $reverseCode, string $objectCore, string $objectId, iterable $values, bool $personName = false, string $contentType = 'agent'): void
     {
-        $type = $this->linkTypes[LinkTypeRow::keyOf($subjectCore, $linkType, $objectCore)] ??= new LinkTypeRow($linkType, $subjectCore, $objectCore, reverseCode: $reverseCode);
-
         foreach ($values as $value) {
             if (!is_string($value)) {
                 continue;
@@ -85,10 +86,21 @@ final class RelationCollector
             // Personal names get parsed (person/org kind + birth/death); other entities (collections)
             // are taken as-is with the relation's fallback contentType. folio ingest requires a
             // non-empty contentType on every row.
+            $entityCore = $subjectCore;
             if ($personName) {
+                // Creator is a role, not an entity kind. Own both signatures so a rebuild
+                // also removes the old per->item edges when every creator is an organization.
+                foreach ([Core::PERSON, Core::ORGANISATION] as $core) {
+                    $this->linkTypes[LinkTypeRow::keyOf($core, $linkType, $objectCore)] ??= new LinkTypeRow($linkType, $core, $objectCore, reverseCode: $reverseCode);
+                }
                 $parsed = PersonName::parse($value);
+                $entityCore = match ($parsed['kind']) {
+                    ContentType::PERSON => Core::PERSON,
+                    ContentType::ORGANIZATION, Core::ORGANISATION => Core::ORGANISATION,
+                    default => throw new \UnexpectedValueException('Unsupported creator kind: '.$parsed['kind']),
+                };
                 $name = $parsed['name'];
-                $entity = ['id' => '', 'label' => $name, 'contentType' => $parsed['kind']];
+                $entity = [ItemField::ID => '', 'label' => $name, ItemField::CONTENT_TYPE => Core::PERSON === $entityCore ? ContentType::PERSON : ContentType::ORGANIZATION];
                 if (null !== $parsed['birth']) {
                     $entity['birth'] = $parsed['birth'];
                 }
@@ -97,16 +109,17 @@ final class RelationCollector
                 }
             } else {
                 $name = $value;
-                $entity = ['id' => '', 'label' => $name, 'contentType' => $contentType];
+                $entity = [ItemField::ID => '', 'label' => $name, ItemField::CONTENT_TYPE => $contentType];
             }
 
             $slug = $this->slugger->slug($name)->lower()->toString();
             if ('' === $slug) {
                 continue;
             }
-            $entity['id'] = $slug;
-            $this->entities[$subjectCore][$slug] = $entity;
+            $entity[ItemField::ID] = $slug;
+            $this->entities[$entityCore][$slug] = $entity;
 
+            $type = $this->linkTypes[LinkTypeRow::keyOf($entityCore, $linkType, $objectCore)] ??= new LinkTypeRow($linkType, $entityCore, $objectCore, reverseCode: $reverseCode);
             $this->streamLink(LinkRow::of($type, $slug, $objectId));
         }
     }
@@ -136,10 +149,7 @@ final class RelationCollector
             return ['cores' => 0, 'links' => 0];
         }
 
-        foreach ($this->entities as $core => $bySlug) {
-            $lines = array_map(static fn (array $e): string => json_encode($e, self::FLAGS), array_values($bySlug));
-            $fs->dumpFile("{$this->normalizeDir}/{$core}.jsonl", implode("\n", $lines)."\n");
-        }
+        $this->writeEntities($fs);
 
         $part = $this->partFile();
         LinkFile::merge($this->normalizeDir, $this->linkTypes, (function () use ($part): \Generator {
@@ -150,6 +160,46 @@ final class RelationCollector
         $fs->remove($part);
 
         return ['cores' => \count($this->entities), 'links' => $this->linkCount];
+    }
+
+    /** Replace entities owned by this scan, preserving other cores' creators and provider rows. */
+    private function writeEntities(Filesystem $fs): void
+    {
+        $previous = $retained = [];
+        foreach (LinkFile::readLinks($this->normalizeDir) as $link) {
+            if (isset($this->linkTypes[$link->typeKey()])) {
+                $previous[$link->subjectCore][$link->subjectId] = true;
+            } else {
+                $retained[$link->subjectCore][$link->subjectId] = true;
+            }
+        }
+        foreach (array_unique(array_map(static fn (LinkTypeRow $type): string => $type->subjectCore, $this->linkTypes)) as $core) {
+            $target = "{$this->normalizeDir}/{$core}.jsonl";
+            $spellings = array_values(array_filter([$target, $target.'.gz'], 'is_file'));
+            usort($spellings, static fn (string $a, string $b): int => filemtime($b) <=> filemtime($a));
+            $entities = [];
+            if ([] !== $spellings) {
+                foreach ($this->readLines($spellings[0]) as $line) {
+                    $entity = json_decode($line, true, flags: \JSON_THROW_ON_ERROR);
+                    $id = $entity[ItemField::ID];
+                    if (!isset($previous[$core][$id]) || isset($retained[$core][$id])) {
+                        $entities[$id] = $entity;
+                    }
+                }
+            }
+            foreach ($this->entities[$core] ?? [] as $id => $entity) {
+                $entities[$id] = $entity;
+            }
+            $lines = array_map(static fn (array $e): string => json_encode($e, self::FLAGS | \JSON_THROW_ON_ERROR), array_values($entities));
+            // Empty is intentional: remove stale generated people after an org-only rebuild.
+            $fs->dumpFile($target, [] === $lines ? '' : implode("\n", $lines)."\n");
+            $fs->remove($target.'.gz');
+            foreach ([$target, $target.'.gz'] as $file) {
+                foreach (['.idx.json', '.sidecar.json', '.index.json', '.db'] as $suffix) {
+                    $fs->remove($file.$suffix);
+                }
+            }
+        }
     }
 
     private function partFile(): string
@@ -163,18 +213,18 @@ final class RelationCollector
         if (!is_file($file)) {
             return;
         }
-        $handle = fopen($file, 'r');
+        $handle = gzopen($file, 'rb');
         if (false === $handle) {
-            return;
+            throw new \RuntimeException(sprintf('Cannot read %s.', $file));
         }
         try {
-            while (($line = fgets($handle)) !== false) {
+            while (($line = gzgets($handle)) !== false) {
                 if (($line = trim($line)) !== '') {
                     yield $line;
                 }
             }
         } finally {
-            fclose($handle);
+            gzclose($handle);
         }
     }
 

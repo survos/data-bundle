@@ -13,11 +13,11 @@ use Symfony\Component\Filesystem\Filesystem;
 
 /**
  * After normalization, materialise relation cores + edges for vocabularies flagged
- * #[VocabTerm(relation: true)] (currently `per`): scan the item rows, parse each creator value into
- * a person/agent entity, and write <core>.jsonl + linkType.jsonl + link.jsonl for folio:ingest.
+ * #[VocabTerm(relation: true)] (creator strings expand to `per` or `org`): scan the item rows, parse each creator value into
+ * a person or organization entity, and write <core>.jsonl + linkType.jsonl + link.jsonl for folio:ingest.
  *
  * Sibling of {@see VocabTermExtractorListener} (the term-set half). Edges run subject(entity)→object(item)
- * — a person CREATES an object.
+ * — a person or organization CREATES an object.
  */
 #[AsEventListener(event: ImportConvertFinishedEvent::class)]
 final class RelationExtractorListener
